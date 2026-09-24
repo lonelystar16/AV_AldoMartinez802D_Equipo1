@@ -1,0 +1,32 @@
+# Entorno y secretos
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# Node
+node_modules/
+dist/
+build/
+
+# Modelos y datos pesados
+*.pt
+*.onnx
+datasets/
+*.mp4
+# Excepción: el modelo final se versiona en models/ (pesa menos de 100 MB)
+!models/*.pt
+!models/*.onnx
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+~$*
+.vscode/
+.idea/
