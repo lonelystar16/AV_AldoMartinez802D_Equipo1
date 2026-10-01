@@ -20,9 +20,9 @@ build/
 *.onnx
 datasets/
 *.mp4
-# Excepción: el modelo final se versiona en models/ (pesa menos de 100 MB)
-!models/*.pt
-!models/*.onnx
+# Excepción: el modelo final se versiona en Fase 2/Evidencias Proyecto/models/ (pesa menos de 100 MB)
+!Fase 2/Evidencias Proyecto/models/*.pt
+!Fase 2/Evidencias Proyecto/models/*.onnx
 
 # Sistema / editores
 .DS_Store

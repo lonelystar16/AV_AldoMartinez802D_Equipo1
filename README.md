@@ -52,13 +52,13 @@ flowchart LR
 
 ## Ejecución local
 
-> ⚠️ **Todavía no es ejecutable.** El `docker-compose.yml` y el código de `src/` se construyen entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt); hoy `src/` y `tests/` solo tienen la estructura de carpetas. Los comandos siguientes son los previstos para cuando exista el `docker-compose.yml`.
+> ⚠️ **Todavía no es ejecutable.** El `docker-compose.yml` y el código de `Fase 2/Evidencias Proyecto/src/` se construyen entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt); hoy `src/` y `tests/` solo tienen la estructura de carpetas. Los comandos siguientes son los previstos para cuando exista el `docker-compose.yml`.
 
 Requisitos: [Docker](https://www.docker.com/) y Docker Compose.
 
 ```bash
 git clone https://github.com/lonelystar16/AV_AldoMartinez802D_Equipo1.git
-cd AV_AldoMartinez802D_Equipo1
+cd "AV_AldoMartinez802D_Equipo1/Fase 2/Evidencias Proyecto"
 cp .env.example .env        # completar las variables
 docker compose up -d
 ```
@@ -70,7 +70,7 @@ docker compose up -d
 
 ## Modelo de detección
 
-El modelo YOLOv8 entrenado se versiona en [`models/`](models/) junto con sus métricas de validación (criterio de aceptación: mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85, RNF-05 del SRS). Es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`: un YOLOv8n o YOLOv8s pesa entre 6 y 25 MB, por debajo del límite de 100 MB de GitHub.
+El modelo YOLOv8 entrenado se versiona en [`Fase 2/Evidencias Proyecto/models/`](Fase%202/Evidencias%20Proyecto/models/) junto con sus métricas de validación (criterio de aceptación: mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85, RNF-05 del SRS). Es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`: un YOLOv8n o YOLOv8s pesa entre 6 y 25 MB, por debajo del límite de 100 MB de GitHub.
 
 ## Equipo
 
@@ -100,19 +100,20 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 ## Estructura del repositorio
 
 ```
-├── Fase 1/                 Evidencias de la definición del proyecto
+├── Fase 1/                         Evidencias de la definición del proyecto
 ├── Fase 2/
-│   ├── Documentacion/      D1 SRS · D2 Diseño · D3 Pruebas · D4 Manual técnico
-│   ├── Evidencias Grupales/
-│   └── Evidencias Individuales/
-├── Fase 3/                 Presentación final
-├── src/
-│   ├── api/                API REST (FastAPI)
-│   ├── edge/               Agente Edge (visión computacional)
-│   ├── dashboard/          Dashboard web (React)
-│   └── firmware/           Firmware de la baliza zonal
-├── models/                 Modelo YOLOv8 entrenado (.onnx / .pt) y sus métricas
-├── db/                     Migraciones y esquema de la base de datos
-├── tests/                  Pruebas automatizadas
-└── docs/diagramas/         Diagramas UML y de arquitectura
+│   ├── Evidencias Grupales/        D1 SRS · carta Gantt · D2 Diseño · D3 Pruebas · D4 Manual técnico
+│   ├── Evidencias Individuales/    Diarios y autoevaluaciones de cada integrante
+│   └── Evidencias Proyecto/        Código y artefactos técnicos
+│       ├── .env.example            Variables de entorno de ejemplo
+│       ├── src/
+│       │   ├── api/                API REST (FastAPI)
+│       │   ├── edge/               Agente Edge (visión computacional)
+│       │   ├── dashboard/          Dashboard web (React)
+│       │   └── firmware/           Firmware de la baliza zonal
+│       ├── models/                 Modelo YOLOv8 entrenado (.onnx / .pt) y sus métricas
+│       ├── db/                     Migraciones y esquema de la base de datos
+│       ├── tests/                  Pruebas automatizadas
+│       └── docs/diagramas/         Diagramas UML y de arquitectura
+└── Fase 3/                         Presentación final
 ```
