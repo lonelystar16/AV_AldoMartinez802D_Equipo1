@@ -3,7 +3,7 @@
 **Sistema de detección automatizada de EPP mediante visión computacional**
 Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802D)
 
-> 🚧 **Estado:** Fase 2, desarrollo. Análisis de requerimientos (SRS v0.1) en revisión; construcción desde la semana 9.
+> 🚧 **Estado:** Fase 2, desarrollo. Análisis de requerimientos (SRS v0.2, borrador) en revisión; construcción desde la semana 9.
 
 ---
 
@@ -54,14 +54,24 @@ flowchart LR
 
 > ⚠️ **La solución completa todavía no es ejecutable.** El `docker-compose.yml`, el dashboard, el agente Edge y los demás componentes se construirán entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt). Actualmente está disponible una API FastAPI mínima con el endpoint `GET /health`.
 
-Requisitos: [Docker](https://www.docker.com/) y Docker Compose.
+## Despliegue futuro con Docker
+
+> Pendiente: todavía no existe `docker-compose.yml`; estos comandos no son
+> ejecutables en el estado actual.
+
+Requisitos futuros: [Docker](https://www.docker.com/) y Docker Compose.
 
 ```bash
 git clone https://github.com/lonelystar16/AV_AldoMartinez802D_Equipo1.git
 cd "AV_AldoMartinez802D_Equipo1/Fase 2/Evidencias Proyecto"
 cp .env.example .env        # completar las variables
-docker compose up -d
+docker compose up -d        # pendiente hasta disponer de docker-compose.yml
 ```
+
+## Ejecución actual de la API
+
+Requisito validado: Python **3.13.3**. Actualmente solo está disponible el
+endpoint público `GET /health`.
 
 Para ejecutar la API disponible actualmente de forma directa, desde la carpeta
 `Fase 2/Evidencias Proyecto`, instala las dependencias y ejecuta:
