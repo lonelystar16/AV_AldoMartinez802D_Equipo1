@@ -52,7 +52,7 @@ flowchart LR
 
 ## Ejecución local
 
-> ⚠️ **Todavía no es ejecutable.** El `docker-compose.yml` y el código de `Fase 2/Evidencias Proyecto/src/` se construyen entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt); hoy `src/` y `tests/` solo tienen la estructura de carpetas. Los comandos siguientes son los previstos para cuando exista el `docker-compose.yml`.
+> ⚠️ **La solución completa todavía no es ejecutable.** El `docker-compose.yml`, el dashboard, el agente Edge y los demás componentes se construirán entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt). Actualmente está disponible una API FastAPI mínima con el endpoint `GET /health`.
 
 Requisitos: [Docker](https://www.docker.com/) y Docker Compose.
 
@@ -64,7 +64,7 @@ docker compose up -d
 ```
 
 Para ejecutar la API disponible actualmente de forma directa, desde la carpeta
-`Fase 2/Evidencias Proyecto` instala las dependencias y ejecuta:
+`Fase 2/Evidencias Proyecto`, instala las dependencias y ejecuta:
 
 ```bash
 python -m pip install -r requirements.txt
@@ -74,9 +74,16 @@ python -m uvicorn app.main:app --app-dir src/api --reload
 La opción `--app-dir src/api` es necesaria porque el punto de entrada está en
 `src/api/app/main.py`.
 
+Con el servidor iniciado, comprueba la disponibilidad de la API en
+`http://localhost:8000/health`. La respuesta esperada es:
+
+```json
+{"status":"ok","service":"cascovision-api"}
+```
+
 | Servicio | URL |
 | --- | --- |
-| Dashboard | http://localhost:3000 |
+| API (estado) | http://localhost:8000/health |
 | API (documentación) | http://localhost:8000/docs |
 
 ## Modelo de detección
