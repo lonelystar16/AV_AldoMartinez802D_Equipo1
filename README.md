@@ -63,6 +63,17 @@ cp .env.example .env        # completar las variables
 docker compose up -d
 ```
 
+Para ejecutar la API disponible actualmente de forma directa, desde la carpeta
+`Fase 2/Evidencias Proyecto` instala las dependencias y ejecuta:
+
+```bash
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --app-dir src/api --reload
+```
+
+La opción `--app-dir src/api` es necesaria porque el punto de entrada está en
+`src/api/app/main.py`.
+
 | Servicio | URL |
 | --- | --- |
 | Dashboard | http://localhost:3000 |
