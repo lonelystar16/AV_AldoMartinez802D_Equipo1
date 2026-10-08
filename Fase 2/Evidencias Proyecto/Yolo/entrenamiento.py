@@ -1,18 +1,7 @@
-from pathlib import Path
 from ultralytics import YOLO
 
-# Obtener la carpeta donde está este script
-BASE_DIR = Path(__file__).resolve().parent
-
-# Ruta absoluta al archivo .yaml dentro de esa misma carpeta
-DATASET_PATH = BASE_DIR / "clothing_dataset.yaml"
-
+# Carga del modelo yolo26s
 model = YOLO("yolo26s.pt")
 
-# Iniciar entrenamiento apuntando a la ruta absoluta
-model.train(
-    data=str(DATASET_PATH),
-    epochs=50,
-    imgsz=640,
-    workers=2  # Evita sobrecargar la CPU en Windows
-)
+# entrenamiento del modelo de dataset a traves de un archivo yaml que contiene la ruta de las imagenes y sus respectivas etiquetas
+model.train(data=r"C:\Users\jikonyx\Documents\vscode\AV_AldoMartinez802D_Equipo1\Fase 2\Evidencias Proyecto\Yolo\dataset\construccion-implementos.yaml", epochs=100, imgsz=640)
