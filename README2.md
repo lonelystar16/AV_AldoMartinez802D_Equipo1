@@ -1,5 +1,5 @@
 Si se necesita cambiar el modelo yolo26s A uno yolo26N, aqui se encuentran la forma correcta para entrenar el modelo
-tiempo estimado de entrenamiento del modelo: 12-16horas
+tiempo estimado de entrenamiento del modelo: 14-18horas
 
 Al momento de abrir el programa y querer entrenarlo nuevamente, se debe de cambiar la ruta en las siguientes caracteristicas:
 construccion-implementos.yalm se debe cambiar a la ruta de la carpeta en el PATH como se muestra a continuacion para garantizar donde se encuentran los datos para entrenar el modelo
