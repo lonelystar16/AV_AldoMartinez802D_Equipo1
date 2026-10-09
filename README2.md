@@ -8,3 +8,6 @@ path: C:/Users/jikonyx/Documents/vscode/AV_AldoMartinez802D_Equipo1/Fase 2/Evide
 y en entrenamiento.py se debe de cambiar la información dentro de los siguientes elementos:
 model = YOLO("yolo26s.pt") por el modelo a usar y
 model.train(data=r"Ruta del construccion-implementos", epochs=100, imgsz=640)
+
+para lograr utilizar el testeo actual se deben de realizar los siguientes pasos en el archivo test-2.py:
+model = YOLO(r"runs\detect\train-9\weights\best.pt") agregar la ruta del lugar donde se encuentra almacenado el testeo en EPP
