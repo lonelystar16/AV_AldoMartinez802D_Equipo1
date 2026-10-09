@@ -1,3 +1,5 @@
+pip install -U ultralytics
+
 Si se necesita cambiar el modelo yolo26s A uno yolo26N, aqui se encuentran la forma correcta para entrenar el modelo
 tiempo estimado de entrenamiento del modelo: 14-18horas
 
