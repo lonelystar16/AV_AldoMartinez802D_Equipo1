@@ -2,7 +2,7 @@ from ultralytics import YOLO
 import math
 
 # Se carga el modelo entrenado con los diferentes implementos de seguridad
-model = YOLO(r"C:\Users\jikonyx\Documents\vscode\AV_AldoMartinez802D_Equipo1\Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\weight\best.pt")
+model = YOLO(r"C:\Users\jikonyx\Documents\vscode\AV_AldoMartinez802D_Equipo1\Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
 
 # Forzar la conversión de la arquitectura del modelo a Float32 para compatibilidad con CPU
 model.model.float()
