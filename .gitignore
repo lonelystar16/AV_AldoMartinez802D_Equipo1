@@ -30,3 +30,7 @@ Thumbs.db
 ~$*
 .vscode/
 .idea/
+
+# Archivos temporales de trabajo del agente
+.ai/
+agents.md

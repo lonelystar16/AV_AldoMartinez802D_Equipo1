@@ -1,0 +1,4 @@
+# Dependencias runtime de la API REST de CascoVision
+fastapi==0.103.2
+pydantic==2.11.7
+uvicorn==0.23.2
