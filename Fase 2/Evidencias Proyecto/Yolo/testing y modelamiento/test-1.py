@@ -1,14 +1,12 @@
 from ultralytics import YOLO
 import math
-
-# Se carga el modelo entrenado con los diferentes implementos de seguridad
+#testeo sin difuminado de cara
+# Se carga el modelo entranado
 model = YOLO(r"C:\Users\jikonyx\Documents\vscode\AV_AldoMartinez802D_Equipo1\Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
 
-# Forzar la conversión de la arquitectura del modelo a Float32 para compatibilidad con CPU
 model.model.float()
 
-# 2. Inferencia en webcam (sin el parámetro half)
-# Se usa stream=True para iterar eficientemente frame por frame
+# 2. Inferencia en webcam 
 results = model.predict(source=0, show=True, stream=True)
 
 # 3. Consumir el generador para procesar los frames
