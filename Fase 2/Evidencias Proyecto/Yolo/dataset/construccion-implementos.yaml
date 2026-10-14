@@ -1,0 +1,21 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# Implementos de seguridad en construcción (Construction PPE) dataset for YOLOv26 🚧
+path: C:/Users/jikonyx/Documents/vscode/AV_AldoMartinez802D_Equipo1/Fase 2/Evidencias Proyecto/Yolo/dataset
+train: images/train # train images (relative to 'path') 1132 images
+val: images/val # val images (relative to 'path') 143 images
+test: images/test # test images (relative to 'path') 141 images
+
+# Classes
+names:
+  0: helmet
+  1: gloves
+  2: vest
+  3: boots
+  4: goggles
+  5: none
+  6: Person
+  7: no_helmet
+  8: no_goggle
+  9: no_gloves
+  10: no_boots

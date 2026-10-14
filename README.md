@@ -24,7 +24,7 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 | Capa | Tecnología |
 | --- | --- |
-| Visión computacional | Python · YOLOv8 (Ultralytics) · ONNX Runtime · OpenCV |
+| Visión computacional | Python · yolov26 (Ultralytics) · ONNX Runtime · OpenCV |
 | Captura de video | Cámaras IP · RTSP / ONVIF |
 | Backend | FastAPI (Python) |
 | Base de datos | PostgreSQL |
@@ -37,7 +37,7 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 ```mermaid
 flowchart LR
-    CAM[Cámaras IP<br/>RTSP] --> EDGE[Agente Edge<br/>YOLOv8 · ONNX]
+    CAM[Cámaras IP<br/>RTSP] --> EDGE[Agente Edge<br/>YOLOv26 · ONNX]
     EDGE -->|POST /alert| BAL[Baliza zonal<br/>M5Stack StickS3]
     EDGE -->|evento + resultado de la alerta| API[API REST<br/>FastAPI]
     API --> DB[(PostgreSQL)]
@@ -98,13 +98,13 @@ Con el servidor iniciado, comprueba la disponibilidad de la API en
 
 ## Modelo de detección
 
-El modelo YOLOv8 entrenado se versiona en [`Fase 2/Evidencias Proyecto/models/`](Fase%202/Evidencias%20Proyecto/models/) junto con sus métricas de validación (criterio de aceptación: mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85, RNF-05 del SRS). Es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`: un YOLOv8n o YOLOv8s pesa entre 6 y 25 MB, por debajo del límite de 100 MB de GitHub.
+El modelo YOLOv26 entrenado se versiona en [`Fase 2/Evidencias Proyecto/models/`](Fase%202/Evidencias%20Proyecto/models/) junto con sus métricas de validación (criterio de aceptación: mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85, RNF-05 del SRS). Es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`: un yolov26n o yolov26s pesa entre 6 y 25 MB, por debajo del límite de 100 MB de GitHub.
 
 ## Equipo
 
 | Integrante | Rol | Responsabilidades |
 | --- | --- | --- |
-| Iahn Vera | Jefe de proyecto / IA | Gestión, modelo YOLOv8, agente Edge |
+| Iahn Vera | Jefe de proyecto / IA | Gestión, modelo yolov26, agente Edge |
 | Joaquín Armijo | Backend y datos | Modelo de datos, API REST, Docker |
 | Benjamín Cáceres | Frontend y reportería | Dashboard, alertas remotas, reportes |
 | Fernando Muñoz | IoT y pruebas | Baliza zonal (firmware), plan de pruebas |
@@ -139,7 +139,7 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │       │   ├── edge/               Agente Edge (visión computacional)
 │       │   ├── dashboard/          Dashboard web (React)
 │       │   └── firmware/           Firmware de la baliza zonal
-│       ├── models/                 Modelo YOLOv8 entrenado (.onnx / .pt) y sus métricas
+│       ├── models/                 Modelo yolov26 entrenado (.onnx / .pt) y sus métricas
 │       ├── db/                     Migraciones y esquema de la base de datos
 │       ├── tests/                  Pruebas automatizadas
 │       └── docs/diagramas/         Diagramas UML y de arquitectura
