@@ -2,9 +2,9 @@
 
 ## Estado
 
-API inicial y propuesta de contrato para revisión del equipo, basada en el SRS
-v0.2 (borrador, 24-09-2026). Solo `GET /health` está implementado; las rutas
-de incidentes descritas más abajo son propuestas futuras.
+API inicial basada en el SRS v0.3 (borrador, 09-10-2026). Están implementados
+`GET /health` y `POST /incidents`; las demás rutas descritas más abajo son
+propuestas futuras.
 
 ## Propósito
 
@@ -20,8 +20,7 @@ Durante el desarrollo local:
 http://localhost:8000
 ```
 
-La documentación automática en `/docs` muestra únicamente las rutas
-implementadas actualmente.
+La documentación automática en `/docs` muestra las rutas implementadas.
 
 ## Endpoint implementado
 
@@ -45,6 +44,66 @@ Respuesta implementada:
 ```
 
 - `200 OK`: proceso HTTP disponible.
+
+## Registrar un incidente (implementado)
+
+```http
+POST /incidents
+Authorization: Bearer <EDGE_API_TOKEN>
+```
+
+El agente Edge registra un incidente después de intentar activar directamente
+la baliza asociada a la zona. La API guarda los datos en PostgreSQL; no recibe
+ni procesa la imagen, solo conserva una ruta relativa interna como referencia.
+
+Solicitud:
+
+```json
+{
+  "camera_id": "camara-01",
+  "zone_id": "zona-norte",
+  "detected_at": "2026-01-15T14:30:00Z",
+  "violation_type": "missing_helmet",
+  "confidence": 0.94,
+  "evidence_path": "incidents/2026/01/15/incident-001.jpg",
+  "beacon_alert": {
+    "status": "alerted",
+    "latency_ms": 820
+  }
+}
+```
+
+Validaciones: `camera_id` y `zone_id` no vacíos; `detected_at` con zona
+horaria; `violation_type` igual a `missing_helmet` o
+`missing_reflective_vest`; `confidence` entre `0` y `1`; `evidence_path`
+relativa, sin `..`, barras invertidas ni prefijo de unidad; y estado de baliza
+igual a `alerted`, `failed` o `skipped_offline`. `latency_ms` es un entero no
+negativo o `null`.
+
+Respuesta `201 Created`:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "open",
+  "created_at": "2026-01-15T14:30:02Z"
+}
+```
+
+- `401 Unauthorized`: token ausente o incorrecto.
+- `503 Service Unavailable`: token o configuración de PostgreSQL ausentes,
+  PostgreSQL no disponible o migración pendiente.
+- `422 Unprocessable Entity`: cuerpo o campos inválidos.
+
+Para preparar PostgreSQL, aplicar una vez la migración
+`db/migrations/001_create_incidents.sql`. La API usa `POSTGRES_DB`,
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` (predeterminado
+`localhost`) y `POSTGRES_PORT` (predeterminado `5432`). El token compartido del
+agente se configura en `EDGE_API_TOKEN`. `.env.example` contiene solo valores
+de ejemplo; las variables deben estar disponibles en el entorno del proceso.
+
+La ruta de evidencia es solo una referencia: la API todavía no guarda ni sirve
+el archivo y esta implementación no aplica difuminado facial.
 
 ## Contrato propuesto, no implementado
 
@@ -71,62 +130,6 @@ POST /alert
 
 Esta es una interfaz externa de la baliza, no una ruta de la API REST. El agente
 Edge enviará la orden directamente a la baliza, sin pasar por la API.
-
-### Registrar un incidente
-
-```http
-POST /incidents
-```
-
-Registra un incidente detectado por el agente Edge (RF-05). El difuminado facial
-de las evidencias es un requisito futuro (RF-06); el componente responsable, el
-mecanismo de acceso y el almacenamiento de las evidencias están pendientes de
-definición.
-
-Solicitud propuesta:
-
-```json
-{
-  "camera_id": "camara-01",
-  "zone_id": "zona-norte",
-  "detected_at": "2026-01-15T14:30:00Z",
-  "violation_type": "missing_helmet",
-  "confidence": 0.94,
-  "evidence_path": "incidents/2026/01/15/incident-001.jpg",
-  "beacon_alert": {
-    "status": "alerted",
-    "latency_ms": 820
-  }
-}
-```
-
-Validaciones propuestas:
-
-| Campo | Validación |
-| --- | --- |
-| `camera_id`, `zone_id` | Identificador no vacío. |
-| `detected_at` | Fecha ISO 8601 con zona horaria. |
-| `violation_type` | `missing_helmet` o `missing_reflective_vest`. |
-| `confidence` | Número entre `0` y `1`, inclusive. |
-| `evidence_path` | Referencia no vacía; almacenamiento y acceso pendientes. |
-| `beacon_alert.status` | `alerted`, `failed` o `skipped_offline`. |
-| `beacon_alert.latency_ms` | Entero no negativo, o `null` si estaba fuera de línea. |
-
-Respuesta y códigos propuestos:
-
-```json
-{
-  "id": "incident-001",
-  "status": "open",
-  "created_at": "2026-01-15T14:30:02Z"
-}
-```
-
-- `201 Created`: incidente registrado.
-- `401 Unauthorized`: token ausente, inválido o vencido.
-- `403 Forbidden`: token válido sin permiso.
-- `422 Unprocessable Entity`: cuerpo o campos inválidos.
-- `500 Internal Server Error`: error interno.
 
 ### Consultar incidentes
 
@@ -168,8 +171,10 @@ Códigos propuestos: `200 OK`, `401 Unauthorized`, `403 Forbidden`,
 ## Decisiones que requieren acuerdo del equipo
 
 - Confirmar los campos y valores de `violation_type` y `beacon_alert.status`.
-- Confirmar si el identificador será opaco (`incident-001`) o UUID.
-- Confirmar el almacenamiento de evidencia y el mecanismo de acceso.
+- Definir el almacenamiento de evidencia y el mecanismo de acceso; `evidence_path`
+  actualmente solo conserva una ruta relativa interna.
+- Definir autenticación de usuarios y permisos por rol para las futuras rutas del
+  dashboard. `POST /incidents` usa el token compartido acordado para el agente Edge.
 - Definir los roles que podrán registrar, consultar y gestionar incidentes.
 - Confirmar los límites de paginación y el orden de resultados.
-- Implementar las rutas y pruebas después de aprobar este contrato.
+- Implementar las rutas futuras y sus pruebas después de aprobar ese contrato.

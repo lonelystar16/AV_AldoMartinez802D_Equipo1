@@ -3,7 +3,7 @@
 **Sistema de detección automatizada de EPP mediante visión computacional**
 Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802D)
 
-> 🚧 **Estado:** Fase 2, desarrollo. Análisis de requerimientos (SRS v0.2, borrador) en revisión; construcción desde la semana 9.
+> 🚧 **Estado:** Fase 2, desarrollo. Análisis de requerimientos (SRS v0.3, borrador) en revisión; construcción desde la semana 9.
 
 ---
 
@@ -52,7 +52,7 @@ flowchart LR
 
 ## Ejecución local
 
-> ⚠️ **La solución completa todavía no es ejecutable.** El `docker-compose.yml`, el dashboard, el agente Edge y los demás componentes se construirán entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt). Actualmente está disponible una API FastAPI mínima con el endpoint `GET /health`.
+> ⚠️ **La solución completa todavía no es ejecutable.** El `docker-compose.yml`, el dashboard, el agente Edge y los demás componentes se construirán entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt). La API FastAPI implementa `GET /health` y `POST /incidents`; este último requiere PostgreSQL, su migración y un token para el agente Edge.
 
 ## Despliegue futuro con Docker
 
@@ -70,8 +70,10 @@ docker compose up -d        # pendiente hasta disponer de docker-compose.yml
 
 ## Ejecución actual de la API
 
-Requisito validado: Python **3.13.3**. Actualmente solo está disponible el
-endpoint público `GET /health`.
+Requisito validado: Python **3.13.3**. Están disponibles el endpoint público
+`GET /health` y `POST /incidents`, protegido con token Bearer y persistido en
+PostgreSQL. La configuración y la migración están descritas en
+[`docs/API.md`](Fase%202/Evidencias%20Proyecto/docs/API.md).
 
 Para ejecutar la API disponible actualmente de forma directa, desde la carpeta
 `Fase 2/Evidencias Proyecto`, instala las dependencias y ejecuta:
