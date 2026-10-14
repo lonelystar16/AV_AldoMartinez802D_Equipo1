@@ -2,7 +2,7 @@ from ultralytics import YOLO
 import math
 #testeo sin difuminado de cara
 # Se carga el modelo entranado
-model = YOLO(r"C:\Users\jikonyx\Documents\vscode\AV_AldoMartinez802D_Equipo1\Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
+model = YOLO(r"Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
 
 model.model.float()
 

@@ -20,11 +20,11 @@ if eye_cascade.empty():
     raise IOError("Error crítico: El archivo se descargó pero OpenCV no pudo cargarlo.")
 
 # 2. Cargar el modelo YOLO
-model = YOLO(r"C:\Users\jikonyx\Documents\vscode\AV_AldoMartinez802D_Equipo1\Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
+model = YOLO(r"Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
 model.model.float()
 
 # 3. Cargar imagen de prueba
-ruta_imagen = r"C:\Users\jikonyx\Documents\vscode\AV_AldoMartinez802D_Equipo1\Fase 2\Evidencias Proyecto\Yolo\testing y modelamiento\testeo.jpg"
+ruta_imagen = r"Fase 2\Evidencias Proyecto\Yolo\testing y modelamiento\testeo.jpg"
 frame = cv2.imread(ruta_imagen)
 
 if frame is None:
