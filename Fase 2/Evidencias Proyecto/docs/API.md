@@ -2,9 +2,10 @@
 
 ## Estado
 
-API inicial y propuesta de contrato para revisión del equipo, basada en el SRS
-v0.2 (borrador, 24-09-2026). Solo `GET /health` está implementado; las rutas
-de incidentes descritas más abajo son propuestas futuras.
+API en construcción. Implementadas: `GET /health`, `POST /incidents`,
+`GET /incidents` y `GET /incidents/{incident_id}`, sobre el contrato propuesto
+en la SRS v0.2 (borrador, 24-09-2026). La autenticación JWT y la capa de
+persistencia definitiva siguen pendientes de cerrar con el equipo.
 
 ## Propósito
 
@@ -46,22 +47,37 @@ Respuesta implementada:
 
 - `200 OK`: proceso HTTP disponible.
 
-## Contrato propuesto, no implementado
+## Rutas de incidentes implementadas
 
-Las siguientes secciones describen el contrato futuro y no representan rutas
-disponibles en la API actual.
+Las tres rutas de incidentes ya están implementadas en `src/api/app/main.py` y
+cubiertas por `tests/test_incidents.py`. Los valores por defecto que se
+adoptaron, entre los puntos que la SRS dejó abiertos, son:
+
+| Punto abierto | Valor adoptado |
+| --- | --- |
+| Formato de `violation_type` | `missing_helmet` y `missing_reflective_vest` |
+| Identificador del incidente | UUID v4 |
+| Almacenamiento de la evidencia | Archivos en `incidents/AAAA/MM/DD/`, referenciados por `evidence_path` |
+| Persistencia | Archivo JSON en `db/incidents.json`; la capa `app/almacen.py` está encapsulada para enchufar PostgreSQL |
+| Paginación | `page` desde 1, `limit` por defecto 20, máximo 100, orden descendente por `detected_at` |
+
+Códigos implementados: `201 Created` al registrar, `200 OK` al consultar, `404
+Not Found` si el identificador no existe y `422 Unprocessable Entity` si el
+cuerpo no cumple el esquema.
+
+El campo `beacon_alert` se acepta y se almacena, pero el agente Edge lo envía
+como `skipped_offline`: la orden a la baliza (`POST /alert`) todavía no está
+implementada.
+
+## Contrato original pendiente
+
+Las secciones siguientes describen el contrato propuesto originalmente. La
+autenticación y el resto de decisiones siguen abiertas.
 
 ### Autenticación futura (JWT)
 
-El SRS (RF-17 y RNF-06) requiere autenticación mediante inicio de sesión y
-tokens JWT con expiración. El contrato propuesto para las rutas protegidas usa:
-
-```http
-Authorization: Bearer <token>
-```
-
-Los tokens y credenciales reales deben configurarse mediante variables de
-entorno. No deben incluirse directamente en el código ni en este documento.
+Pendiente. Se definirá junto con el modelo de datos y los roles, para no
+implementar un esquema de tokens que después haya que rehacer.
 
 ### Activar la baliza (interfaz externa)
 
