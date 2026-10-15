@@ -78,6 +78,11 @@ Distribución de clases en `val`: `Person` 239, `helmet` 201, `vest` 171, `boots
 151, `gloves` 136, `none` 81, `no_gloves` 56, `goggles` 47, `no_helmet` 45,
 `no_goggle` 41, `no_boots` 4.
 
+> `construccion-implementos.yaml` declara `path:` como ruta relativa a la raíz
+> del repositorio, de modo que el dataset no quede atado a una máquina. Como
+> Ultralytics la resuelve contra el directorio de trabajo, el entrenamiento
+> debe lanzarse desde la raíz del repositorio.
+
 ### Curva de entrenamiento
 
 | Epoch | mAP@0,5 | mAP@0,5:0,95 | Precisión | Recall |
@@ -231,6 +236,10 @@ pip install "lap>=0.5.12"
 
 ## 6. Ejecución
 
+### Monitoreo y API
+
+Desde la carpeta `Fase 2/Evidencias Proyecto`:
+
 ```bash
 cd "Fase 2/Evidencias Proyecto"
 
@@ -243,6 +252,16 @@ python "Yolo/testing y modelamiento/monitoreo_api.py"
 ```
 
 Presionar `q` en la ventana de video para finalizar.
+
+### Entrenamiento
+
+El entrenamiento se lanza **desde la raíz del repositorio**, porque tanto el
+modelo base (`yolo26s.pt`) como el dataset usan rutas relativas a esa carpeta.
+
+```bash
+cd <raíz-del-repositorio>
+python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/entrenamiento.py"
+```
 
 ### Anonimización de la evidencia
 
