@@ -105,7 +105,7 @@ Con el servidor iniciado, comprueba la disponibilidad de la API en
 
 El agente Edge y los scripts de visión usan además las librerías de
 [`requirements-yolo.txt`](Fase%202/Evidencias%20Proyecto/requirements-yolo.txt),
-documentadas en detalle en [`README2.md`](README2.md). En resumen:
+documentadas en detalle en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md). En resumen:
 
 ```bash
 pip install torch==2.14.1+cu126 torchvision==0.29.1+cu126 --index-url https://download.pytorch.org/whl/cu126
@@ -129,7 +129,7 @@ python "Yolo/testing y modelamiento/monitoreo_api.py"
 
 El modelo YOLOv26 entrenado se versiona en [`Fase 2/Evidencias Proyecto/models/`](Fase%202/Evidencias%20Proyecto/models/) junto con sus métricas de validación (criterio de aceptación: mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85, RNF-05 del SRS). Es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`: un yolov26n o yolov26s pesa entre 6 y 25 MB, por debajo del límite de 100 MB de GitHub.
 
-La corrida actual (`train-9`) **no cumple todavía el RNF-05**: alcanza mAP@0,5 = 0,62 y *recall* = 0,62, con señales de sobreajuste entre entrenamiento y validación. Sobre las tres clases que el sistema usa realmente (`helmet`, `vest`, `Person`) promedia **0,891**. El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`README2.md`](README2.md), que documenta esta versión como línea base.
+La corrida actual (`train-9`) **no cumple todavía el RNF-05**: alcanza mAP@0,5 = 0,62 y *recall* = 0,62, con señales de sobreajuste entre entrenamiento y validación. Sobre las tres clases que el sistema usa realmente (`helmet`, `vest`, `Person`) promedia **0,891**. El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md), que documenta esta versión como línea base.
 
 La misma carpeta incluye `face_detection_yunet_2023mar.onnx` (227 KB), el detector de rostros que usa el agente Edge para difuminar la evidencia.
 

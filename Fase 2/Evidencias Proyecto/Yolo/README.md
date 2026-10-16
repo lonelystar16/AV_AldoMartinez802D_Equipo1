@@ -64,7 +64,7 @@ casco queda por debajo y el 91,5% de las de chaleco por encima.
 | `batch` | 16 |
 | Optimizador | `auto` (AdamW) |
 | Tiempo total | 13,78 h (49.600,9 s) |
-| Pesos | `runs/detect/train-9/resultado/best.pt` (19,4 MB) |
+| Pesos | [`models/cascovision_yolo26s.pt`](../models/) (19,4 MB, mejor época) |
 
 ### Dataset
 
@@ -197,7 +197,7 @@ Cada infracción confirmada guarda el frame, ya con los rostros difuminados, en 
 ## 5. Dependencias
 
 Entorno validado: **Python 3.12**. Ver
-[`requirements-yolo.txt`](Fase%202/Evidencias%20Proyecto/requirements-yolo.txt).
+[`requirements-yolo.txt`](../requirements-yolo.txt).
 
 ```bash
 # 1) PyTorch con CUDA. En Windows el build con GPU no está en PyPI: el de PyPI
@@ -224,7 +224,7 @@ pip install "lap>=0.5.12"
 - **El difuminado usa YuNet** (`cv2.FaceDetectorYN`), una red neuronal, no una
   cascada Haar: OpenCV 5.0 eliminó la API de cascadas. El modelo
   `face_detection_yunet_2023mar.onnx` (227 KB) se versiona en
-  [`models/`](Fase%202/Evidencias%20Proyecto/models/). Detecta rostros frontales
+  [`models/`](../models/). Detecta rostros frontales
   y de perfil, y entrega las coordenadas de ambos ojos.
 - **El seguimiento usa ByteTrack.** El checkpoint arrastra `tracktrack.yaml` en sus
   argumentos y ese tracker devuelve identificadores nulos en Ultralytics 8.4, sin
@@ -255,8 +255,9 @@ Presionar `q` en la ventana de video para finalizar.
 
 ### Entrenamiento
 
-El entrenamiento se lanza **desde la raíz del repositorio**, porque tanto el
-modelo base (`yolo26s.pt`) como el dataset usan rutas relativas a esa carpeta.
+El entrenamiento se lanza **desde la raíz del repositorio**, porque el dataset
+usa una ruta relativa a esa carpeta. El modelo base `yolo26s.pt` no se versiona:
+Ultralytics lo descarga automáticamente la primera vez que se usa.
 
 ```bash
 cd <raíz-del-repositorio>
