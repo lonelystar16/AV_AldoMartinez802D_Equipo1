@@ -3,7 +3,7 @@ import time
 from ultralytics import YOLO
 
 # ==================== CONFIGURACIÓN ====================
-RUTA_MODELO_EPP = r"Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt"
+RUTA_MODELO_EPP = r"Fase 2\Evidencias Proyecto\models\cascovision_yolo26s.pt"
 FUENTE_VIDEO = 0                 
 CONF_MIN = 0.20                  
 CLASE_PERSONA = "Person"
