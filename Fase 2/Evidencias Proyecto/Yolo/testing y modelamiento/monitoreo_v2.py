@@ -7,7 +7,7 @@ infracción confirmada en `incidents/`. Para reportar a la API REST usa
 
 import cv2
 
-from motor_cascovision import RAIZ, MonitorEPP
+from motor_cascovision import RAIZ, RUTA_MODELO_EPP, MonitorEPP
 
 FUENTE_VIDEO = 0
 VENTANA = "Monitoreo CascoVision en Tiempo Real"
@@ -20,7 +20,7 @@ def main() -> None:
         raise IOError("No se pudo abrir la fuente de video.")
 
     print("\n--- Monitoreo CascoVision Iniciado ---")
-    print(f"Modelo:  {RAIZ / 'Fase 2' / 'Evidencias Proyecto' / 'Yolo' / 'runs' / 'detect' / 'train-9' / 'resultado' / 'best.pt'}")
+    print(f"Modelo:  {RUTA_MODELO_EPP}")
     print("Enfocado estrictamente en CASCO y CHALECO.")
     print(f"Suavizado: alerta tras {2} de {5} frames.")
     print(f"Evidencia: {monitor.carpeta_evidencia}")

@@ -20,7 +20,7 @@ if eye_cascade.empty():
     raise IOError("Error crítico: El archivo se descargó pero OpenCV no pudo cargarlo.")
 
 # 2. Cargar el modelo YOLO
-model = YOLO(r"Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
+model = YOLO(r"Fase 2\Evidencias Proyecto\models\cascovision_yolo26s.pt")
 model.model.float()
 
 # 3. Cargar imagen de prueba
