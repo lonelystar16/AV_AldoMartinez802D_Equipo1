@@ -24,7 +24,7 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 | Capa | Tecnología |
 | --- | --- |
-| Visión computacional | Python · yolov26 (Ultralytics) · ONNX Runtime · OpenCV |
+| Visión computacional | Python · YOLO26 (Ultralytics) · OpenCV · YuNet (difuminado de rostros) |
 | Captura de video | Cámaras IP · RTSP / ONVIF |
 | Backend | FastAPI (Python) |
 | Base de datos | PostgreSQL |
@@ -37,7 +37,7 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 ```mermaid
 flowchart LR
-    CAM[Cámaras IP<br/>RTSP] --> EDGE[Agente Edge<br/>YOLOv26 · ONNX]
+    CAM[Cámaras IP<br/>RTSP] --> EDGE[Agente Edge<br/>YOLO26]
     EDGE -->|POST /alert| BAL[Baliza zonal<br/>M5Stack StickS3]
     EDGE -->|evento + resultado de la alerta| API[API REST<br/>FastAPI]
     API --> DB[(PostgreSQL)]
@@ -101,19 +101,18 @@ Con el servidor iniciado, comprueba la disponibilidad de la API en
 | API (estado) | http://localhost:8000/health |
 | API (documentación) | http://localhost:8000/docs |
 
-### Dependencias de la matriz YOLOv26
+### Dependencias del modelo YOLO26
 
 El agente Edge y los scripts de visión usan además las librerías de
 [`requirements-yolo.txt`](Fase%202/Evidencias%20Proyecto/requirements-yolo.txt),
 documentadas en detalle en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md). En resumen:
 
 ```bash
-pip install torch==2.14.1+cu126 torchvision==0.29.1+cu126 --index-url https://download.pytorch.org/whl/cu126
-pip install ultralytics==8.4.177
-pip install "opencv-python>=4.6.0,<5.0"
-pip install "numpy>=1.24"
-pip install "lap>=0.5.12"
+python -m pip install -r requirements-yolo.txt
 ```
+
+El archivo instala PyTorch con CUDA 12.6 desde el índice de PyTorch; en un
+equipo sin GPU NVIDIA, ver las alternativas en el README del modelo.
 
 Con la cámara conectada:
 
@@ -127,7 +126,7 @@ python "Yolo/testing y modelamiento/monitoreo_api.py"
 
 ## Modelo de detección
 
-El modelo YOLOv26 entrenado se versiona en [`Fase 2/Evidencias Proyecto/models/`](Fase%202/Evidencias%20Proyecto/models/) junto con sus métricas de validación (criterio de aceptación: mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85, RNF-05 del SRS). Es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`: un yolov26n o yolov26s pesa entre 6 y 25 MB, por debajo del límite de 100 MB de GitHub.
+El modelo entrenado es [`Fase 2/Evidencias Proyecto/models/cascovision_yolo26s.pt`](Fase%202/Evidencias%20Proyecto/models/) (YOLO26s, 19,4 MB), con sus métricas en el README de esa carpeta. El criterio de aceptación es mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85 (RNF-05 del SRS). `models/` es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`. El dataset de entrenamiento (~258 MB) no se versiona; el README del modelo explica cómo obtenerlo.
 
 La corrida actual (`train-9`) **no cumple todavía el RNF-05**: alcanza mAP@0,5 = 0,62 y *recall* = 0,62, con señales de sobreajuste entre entrenamiento y validación. Sobre las tres clases que el sistema usa realmente (`helmet`, `vest`, `Person`) promedia **0,891**. El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md), que documenta esta versión como línea base.
 
@@ -137,7 +136,7 @@ La misma carpeta incluye `face_detection_yunet_2023mar.onnx` (227 KB), el detect
 
 | Integrante | Rol | Responsabilidades |
 | --- | --- | --- |
-| Iahn Vera | Jefe de proyecto / IA | Gestión, modelo yolov26, agente Edge |
+| Iahn Vera | Jefe de proyecto / IA | Gestión, modelo YOLO26, agente Edge |
 | Joaquín Armijo | Backend y datos | Modelo de datos, API REST, Docker |
 | Benjamín Cáceres | Frontend y reportería | Dashboard, alertas remotas, reportes |
 | Fernando Muñoz | IoT y pruebas | Baliza zonal (firmware), plan de pruebas |
@@ -172,8 +171,9 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │       │   ├── edge/               Agente Edge (visión computacional)
 │       │   ├── dashboard/          Dashboard web (React)
 │       │   └── firmware/           Firmware de la baliza zonal
-│       ├── models/                 Modelo yolov26 entrenado (.onnx / .pt) y sus métricas
-│       ├── db/                     Migraciones y esquema de la base de datos
+│       ├── Yolo/                   Entrenamiento, motor de detección y agente Edge (provisional)
+│       ├── models/                 Modelo YOLO26 entrenado, detector de rostros YuNet y métricas
+│       ├── db/migrations/          Esquema SQL de PostgreSQL
 │       ├── tests/                  Pruebas automatizadas
 │       └── docs/diagramas/         Diagramas UML y de arquitectura
 └── Fase 3/                         Presentación final

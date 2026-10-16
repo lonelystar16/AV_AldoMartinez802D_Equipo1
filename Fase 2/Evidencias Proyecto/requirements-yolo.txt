@@ -1,25 +1,24 @@
-# Dependencias de la matriz YOLOv26 — CascoVision
+# Dependencias del motor de detección YOLO26 y del agente Edge — CascoVision
 # Entorno validado: Python 3.12
+#   python -m pip install -r requirements-yolo.txt
+#
+# PyTorch con CUDA 12.6: en Windows la versión con GPU no está en PyPI (la de
+# PyPI es solo CPU). En un equipo sin GPU NVIDIA, quitar la línea siguiente y
+# el sufijo +cu126 de torch y torchvision.
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.14.1+cu126
+torchvision==0.29.1+cu126
 
-# --- Orden de instalación (respetar el orden) ---
+# Ultralytics 8.4 o superior: las versiones anteriores no cargan un checkpoint
+# YOLO26 (cascovision_yolo26s.pt se entrenó desde yolo26s.pt).
+ultralytics==8.4.177
 
-# 1) PyTorch con CUDA. En Windows el build con GPU NO está en PyPI: el de PyPI
-#    es CPU-only (~118 MB) y tu tarjeta quedaría sin usar. Sin esto, pip además
-#    intenta compilar desde código fuente y falla sin Visual Studio.
-pip install torch==2.14.1+cu126 torchvision==0.29.1+cu126 --index-url https://download.pytorch.org/whl/cu126
+# OpenCV anterior a 5.0: los scripts de prueba usan cv2.CascadeClassifier, que
+# la 5.x eliminó. El motor usa YuNet (cv2.FaceDetectorYN).
+opencv-python>=4.6.0,<5.0
 
-# 2) Ultralytics. La versión 8.4 o superior es obligatoria: best.pt se entrenó
-#    con yolo26s.pt y las versiones anteriores no resuelven ese checkpoint.
-pip install ultralytics==8.4.177
+numpy>=1.24
 
-# 3) OpenCV. El techo 5.0 es necesario: la 5.x eliminó por completo la API de
-#    cascadas Haar (cv2.CascadeClassifier ya no existe).
-pip install "opencv-python>=4.6.0,<5.0"
-
-# 4) NumPy. Nunca fijar por debajo de 2.4: no hay ruedas cp315 y pip intentaría
-#    compilarlo, lo que requiere Visual Studio Build Tools.
-pip install "numpy>=1.24"
-
-# 5) Métrica de tracking, que Ultralytics intenta instalar en caliente durante
-#    la ejecución. Se fija aquí para que no se descargue a mitad de una demo.
-pip install "lap>=0.5.12"
+# Seguimiento con ByteTrack. Se fija aquí para que Ultralytics no lo instale en
+# caliente a mitad de una demostración.
+lap>=0.5.12

@@ -1,4 +1,4 @@
-# CascoVision — modelo de detección de EPP con YOLOv26
+# CascoVision — modelo de detección de EPP con YOLO26
 
 > **Borrador de trabajo.** Documenta el subconjunto de EPP y el proceso de
 > modelado del proyecto. Cuando el proyecto se complete, se fusionará con el
@@ -57,7 +57,7 @@ casco queda por debajo y el 91,5% de las de chaleco por encima.
 
 | Parámetro | Valor |
 | --- | --- |
-| Modelo base | `yolo26s.pt` (YOLOv26-small, 10,0 M parámetros) |
+| Modelo base | `yolo26s.pt` (YOLO26-small, 10,0 M parámetros) |
 | Corrida | `train-9` |
 | Épocas | 100 |
 | `imgsz` | 640 |
@@ -67,6 +67,18 @@ casco queda por debajo y el 91,5% de las de chaleco por encima.
 | Pesos | [`models/cascovision_yolo26s.pt`](../models/) (19,4 MB, mejor época) |
 
 ### Dataset
+
+Es el dataset **Construction-PPE de Ultralytics**
+(<https://docs.ultralytics.com/datasets/detect/construction-ppe>). **No se
+versiona en Git** por su tamaño (~258 MB). Para entrenar, dejar las imágenes y
+las etiquetas en `Yolo/dataset/images/` y `Yolo/dataset/labels/`, con las
+divisiones `train`, `val` y `test`. Se pueden obtener de dos formas:
+
+- pedir a Joaquín la copia exacta usada en `train-9`, recomendado para
+  reproducir las métricas;
+- descargarlo con Ultralytics (`yolo train data=construction-ppe.yaml` lo baja
+  solo) y copiar sus carpetas `images/` y `labels/` a `Yolo/dataset/`. Si la
+  versión publicada cambió, las métricas pueden variar.
 
 | División | Imágenes |
 | --- | --- |
@@ -200,22 +212,15 @@ Entorno validado: **Python 3.12**. Ver
 [`requirements-yolo.txt`](../requirements-yolo.txt).
 
 ```bash
-# 1) PyTorch con CUDA. En Windows el build con GPU no está en PyPI: el de PyPI
-#    es CPU-only y la tarjeta quedaría sin usar.
-pip install torch==2.14.1+cu126 torchvision==0.29.1+cu126 --index-url https://download.pytorch.org/whl/cu126
-
-# 2) Ultralytics 8.4 o superior: best.pt se entrenó con yolo26s.pt
-pip install ultralytics==8.4.177
-
-# 3) OpenCV con techo 5.0: la 5.x eliminó cv2.CascadeClassifier
-pip install "opencv-python>=4.6.0,<5.0"
-
-# 4) NumPy nunca por debajo de 2.4
-pip install "numpy>=1.24"
-
-# 5) Métrica de tracking
-pip install "lap>=0.5.12"
+cd "Fase 2/Evidencias Proyecto"
+python -m pip install -r requirements-yolo.txt
 ```
+
+El archivo instala, en este orden: PyTorch con CUDA 12.6 desde el índice de
+PyTorch, Ultralytics 8.4 (necesario para cargar un checkpoint YOLO26), OpenCV
+anterior a 5.0, NumPy y `lap` (el seguimiento de ByteTrack). En un equipo sin GPU
+NVIDIA, quitar la línea `--extra-index-url` y el sufijo `+cu126` para instalar
+la versión de PyTorch para CPU.
 
 ### Notas del entorno
 
@@ -229,8 +234,9 @@ pip install "lap>=0.5.12"
 - **El seguimiento usa ByteTrack.** El checkpoint arrastra `tracktrack.yaml` en sus
   argumentos y ese tracker devuelve identificadores nulos en Ultralytics 8.4, sin
   los cuales no hay seguimiento ni suavizado.
-- **NumPy por debajo de 2.4** no tiene ruedas para Python 3.15 y pip intenta
-  compilarlo, lo que falla sin Visual Studio Build Tools.
+- **Python 3.12.** Es la versión validada. Con versiones más nuevas de Python,
+  pip puede no encontrar ruedas precompiladas de NumPy o PyTorch e intentar
+  compilarlas, lo que falla sin Visual Studio Build Tools.
 
 ---
 
