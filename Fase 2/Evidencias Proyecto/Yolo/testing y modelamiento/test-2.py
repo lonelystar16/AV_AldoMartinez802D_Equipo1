@@ -15,7 +15,7 @@ if eye_cascade.empty():
     raise IOError("Error crítico: No se pudo cargar el detector de ojos.")
 
 # 2. Cargar el modelo YOLO entrenado
-model = YOLO(r"Fase 2\Evidencias Proyecto\Yolo\runs\detect\train-9\resultado\best.pt")
+model = YOLO(r"Fase 2\Evidencias Proyecto\models\cascovision_yolo26s.pt")
 model.model.float()
 
 # Semaforización de colores (BGR) - Clases de lentes (4, 8) y none (5) excluidas

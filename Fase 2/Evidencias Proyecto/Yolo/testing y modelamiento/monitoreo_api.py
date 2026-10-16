@@ -4,8 +4,8 @@ Reutiliza el mismo motor que `monitoreo_v2.py`. La diferencia es que aqui cada
 infraccion confirmada viaja por HTTP directo a la API, con reintentos y cola
 local, para no perder evidencia si la API no responde.
 
-La autenticacion JWT no esta implementada todavia: se coordina con el equipo
-antes de cerrar el modelo de datos y los roles.
+La API exige el token del agente Edge (variable EDGE_API_TOKEN): debe tener el
+mismo valor en la terminal de la API y en la de este agente.
 
     python -m uvicorn app.main:app --app-dir src/api --reload
     python "Yolo/testing y modelamiento/monitoreo_api.py"
@@ -13,6 +13,7 @@ antes de cerrar el modelo de datos y los roles.
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -39,8 +40,10 @@ MAX_COLA = 500
 class ReporteAPI:
     """Envia incidentes a la API, con reintentos y cola local en disco."""
 
-    def __init__(self, url: str = API_POR_DEFECTO, archivo_cola: Path = COLA_INCIDENTES):
+    def __init__(self, url: str = API_POR_DEFECTO, archivo_cola: Path = COLA_INCIDENTES,
+                 token: str | None = None):
         self.url = url.rstrip("/")
+        self.token = token if token is not None else os.getenv("EDGE_API_TOKEN", "")
         self.archivo_cola = archivo_cola
         self.pendientes: deque = deque(self._leer_cola())
         self.disponible = True
@@ -81,9 +84,11 @@ class ReporteAPI:
             "violation_types": incidente.get("violation_types"),
         }).encode("utf-8")
 
+        cabeceras = {"Content-Type": "application/json"}
+        if self.token:
+            cabeceras["Authorization"] = f"Bearer {self.token}"
         peticion = urllib.request.Request(
-            f"{self.url}/incidents", data=cuerpo, method="POST",
-            headers={"Content-Type": "application/json"},
+            f"{self.url}/incidents", data=cuerpo, method="POST", headers=cabeceras,
         )
         for intento in range(MAX_INTENTOS):
             try:
@@ -137,6 +142,8 @@ def main() -> None:
     argumentos = analizador.parse_args()
 
     reporte = ReporteAPI(argumentos.api)
+    if not reporte.token:
+        print("Aviso: EDGE_API_TOKEN no está definido; la API rechazará los incidentes (401/503).")
     monitor = MonitorEPP(carpeta_evidencia=RAIZ_EVIDENCIA,
                          al_registrar=reporte.enviar)
 

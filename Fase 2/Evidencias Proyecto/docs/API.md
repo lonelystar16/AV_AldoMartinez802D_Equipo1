@@ -2,104 +2,79 @@
 
 ## Estado
 
-API en construcción. Implementadas: `GET /health`, `POST /incidents`,
-`GET /incidents` y `GET /incidents/{incident_id}`, sobre el contrato propuesto
-en la SRS v0.2 (borrador, 24-09-2026). La autenticación JWT y la capa de
-persistencia definitiva siguen pendientes de cerrar con el equipo.
+API en construcción, basada en el SRS v0.3 (borrador, 09-10-2026). Están
+implementadas `GET /health`, `POST /incidents`, `GET /incidents` y
+`GET /incidents/{incident_id}`, cubiertas por `tests/test_health.py` y
+`tests/test_incidents.py`.
+
+Esta versión integra dos implementaciones que se hicieron en paralelo: el
+registro con token y PostgreSQL de la rama `development_02.10.2026`, y las
+consultas, las pruebas y el almacenamiento JSON de la rama `Yolo26`.
 
 ## Propósito
 
-La API REST permitirá registrar incidentes de seguridad detectados por el agente
-Edge, consultar su historial y verificar la disponibilidad del proceso HTTP.
-La API no procesa directamente el video.
+La API registra los incidentes que detecta el agente Edge, permite consultar su
+historial y expone el estado del proceso HTTP. No procesa video ni activa la
+baliza: el agente Edge envía la orden `POST /alert` directamente a la baliza y
+después informa el resultado a la API.
+
+## Configuración
+
+| Variable | Uso |
+| --- | --- |
+| `EDGE_API_TOKEN` | Token compartido que el agente Edge envía como `Bearer` en `POST /incidents`. Obligatorio |
+| `CASCOVISION_STORAGE` | `json` (por defecto) o `postgres` |
+| `CASCOVISION_INCIDENTES` | Ruta del archivo JSON. Por defecto `db/incidents.json` |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Conexión a PostgreSQL, obligatorias con `postgres` |
+| `POSTGRES_HOST`, `POSTGRES_PORT` | Por defecto `localhost` y `5432` |
+
+`.env.example` contiene solo valores de ejemplo. Las variables deben estar en el
+entorno del proceso; la API no lee el archivo `.env` por sí misma.
+
+### Almacenamiento
+
+- **`json`:** para desarrollo y pruebas sin base de datos. Guarda en un archivo
+  con escritura atómica. No usar con varios procesos a la vez.
+- **`postgres`:** el almacenamiento de la arquitectura. Antes de usarlo, aplicar
+  en orden las migraciones de `db/migrations/`:
+
+  ```bash
+  psql -d cascovision -f db/migrations/001_create_incidents.sql
+  psql -d cascovision -f db/migrations/002_add_tracking_fields.sql
+  ```
+
+La capa `src/api/app/almacen.py` encapsula ambas opciones; la API no depende de
+cuál se use.
 
 ## URL base
-
-Durante el desarrollo local:
 
 ```text
 http://localhost:8000
 ```
 
-La documentación automática en `/docs` muestra únicamente las rutas
-implementadas actualmente.
+La documentación automática en `/docs` muestra las rutas implementadas.
 
-## Endpoint implementado
+## Rutas
 
-### Consultar el estado del proceso HTTP
+### `GET /health`
 
-```http
-GET /health
-```
-
-Esta ruta es pública y no requiere autenticación. Comprueba únicamente que el
-proceso HTTP de la API está disponible; no verifica PostgreSQL, el agente Edge,
-el dashboard ni la baliza zonal.
-
-Respuesta implementada:
+Pública. Comprueba solo que el proceso HTTP responde; no verifica PostgreSQL,
+el agente Edge, el dashboard ni la baliza.
 
 ```json
-{
-  "status": "ok",
-  "service": "cascovision-api"
-}
+{"status": "ok", "service": "cascovision-api"}
 ```
 
-- `200 OK`: proceso HTTP disponible.
-
-## Rutas de incidentes implementadas
-
-Las tres rutas de incidentes ya están implementadas en `src/api/app/main.py` y
-cubiertas por `tests/test_incidents.py`. Los valores por defecto que se
-adoptaron, entre los puntos que la SRS dejó abiertos, son:
-
-| Punto abierto | Valor adoptado |
-| --- | --- |
-| Formato de `violation_type` | `missing_helmet` y `missing_reflective_vest` |
-| Identificador del incidente | UUID v4 |
-| Almacenamiento de la evidencia | Archivos en `incidents/AAAA/MM/DD/`, referenciados por `evidence_path` |
-| Persistencia | Archivo JSON en `db/incidents.json`; la capa `app/almacen.py` está encapsulada para enchufar PostgreSQL |
-| Paginación | `page` desde 1, `limit` por defecto 20, máximo 100, orden descendente por `detected_at` |
-
-Códigos implementados: `201 Created` al registrar, `200 OK` al consultar, `404
-Not Found` si el identificador no existe y `422 Unprocessable Entity` si el
-cuerpo no cumple el esquema.
-
-El campo `beacon_alert` se acepta y se almacena, pero el agente Edge lo envía
-como `skipped_offline`: la orden a la baliza (`POST /alert`) todavía no está
-implementada.
-
-## Contrato original pendiente
-
-Las secciones siguientes describen el contrato propuesto originalmente. La
-autenticación y el resto de decisiones siguen abiertas.
-
-### Autenticación futura (JWT)
-
-Pendiente. Se definirá junto con el modelo de datos y los roles, para no
-implementar un esquema de tokens que después haya que rehacer.
-
-### Activar la baliza (interfaz externa)
-
-```http
-POST /alert
-```
-
-Esta es una interfaz externa de la baliza, no una ruta de la API REST. El agente
-Edge enviará la orden directamente a la baliza, sin pasar por la API.
-
-### Registrar un incidente
+### `POST /incidents`
 
 ```http
 POST /incidents
+Authorization: Bearer <EDGE_API_TOKEN>
 ```
 
-Registra un incidente detectado por el agente Edge (RF-05). El difuminado facial
-de las evidencias es un requisito futuro (RF-06); el componente responsable, el
-mecanismo de acceso y el almacenamiento de las evidencias están pendientes de
-definición.
-
-Solicitud propuesta:
+El agente Edge registra un incidente después de intentar activar la baliza de
+la zona. La API no recibe la imagen: guarda una ruta relativa interna como
+referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
 
 ```json
 {
@@ -108,84 +83,74 @@ Solicitud propuesta:
   "detected_at": "2026-01-15T14:30:00Z",
   "violation_type": "missing_helmet",
   "confidence": 0.94,
-  "evidence_path": "incidents/2026/01/15/incident-001.jpg",
-  "beacon_alert": {
-    "status": "alerted",
-    "latency_ms": 820
-  }
+  "evidence_path": "incidents/2026/01/15/incidente-143000-000000.jpg",
+  "beacon_alert": {"status": "alerted", "latency_ms": 820},
+  "person_track_id": 7,
+  "violation_types": ["missing_helmet", "missing_reflective_vest"]
 }
 ```
 
-Validaciones propuestas:
-
 | Campo | Validación |
 | --- | --- |
-| `camera_id`, `zone_id` | Identificador no vacío. |
-| `detected_at` | Fecha ISO 8601 con zona horaria. |
-| `violation_type` | `missing_helmet` o `missing_reflective_vest`. |
-| `confidence` | Número entre `0` y `1`, inclusive. |
-| `evidence_path` | Referencia no vacía; almacenamiento y acceso pendientes. |
-| `beacon_alert.status` | `alerted`, `failed` o `skipped_offline`. |
-| `beacon_alert.latency_ms` | Entero no negativo, o `null` si estaba fuera de línea. |
+| `camera_id`, `zone_id` | No vacíos |
+| `detected_at` | ISO 8601 **con zona horaria** |
+| `violation_type` | `missing_helmet` o `missing_reflective_vest` |
+| `confidence` | Entre `0` y `1` |
+| `evidence_path` | Relativa: sin `/` inicial, sin `..`, sin `\` y sin `:` (letra de unidad) |
+| `beacon_alert.status` | `alerted`, `failed` o `skipped_offline` |
+| `beacon_alert.latency_ms` | Entero ≥ 0 o `null` |
+| `person_track_id` | Opcional. Identificador de seguimiento de la persona (ByteTrack) |
+| `violation_types` | Opcional. Todas las infracciones de la persona en el evento |
 
-Respuesta y códigos propuestos:
+Respuesta `201 Created`:
 
 ```json
 {
-  "id": "incident-001",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "open",
   "created_at": "2026-01-15T14:30:02Z"
 }
 ```
 
-- `201 Created`: incidente registrado.
-- `401 Unauthorized`: token ausente, inválido o vencido.
-- `403 Forbidden`: token válido sin permiso.
+- `401 Unauthorized`: token ausente o incorrecto.
 - `422 Unprocessable Entity`: cuerpo o campos inválidos.
-- `500 Internal Server Error`: error interno.
+- `503 Service Unavailable`: `EDGE_API_TOKEN` sin configurar, PostgreSQL sin
+  configurar o caído, o migraciones pendientes.
 
-### Consultar incidentes
+### `GET /incidents`
 
-```http
-GET /incidents
-```
+Historial ordenado por `detected_at` descendente.
 
-Consulta propuesta para el historial del dashboard, ordenado por
-`detected_at` descendente.
+| Parámetro | Valor |
+| --- | --- |
+| `zone_id`, `camera_id` | Filtro exacto |
+| `violation_type` | `missing_helmet` o `missing_reflective_vest` |
+| `status` | `open`, `reviewed`, `closed` o `false_positive` |
+| `page` | Desde `1` |
+| `limit` | Por defecto `20`, máximo `100` |
 
-Parámetros propuestos: `from`, `to`, `zone_id`, `status`, `camera_id`,
-`violation_type`, `page` y `limit`. La página inicial propuesta es `1`, el
-límite predeterminado `20` y el máximo `100`.
+Respuestas: `200 OK`, `422` si un parámetro es inválido y `503` si el
+almacenamiento no está disponible.
 
-Códigos propuestos: `200 OK`, `401 Unauthorized`, `403 Forbidden`,
-`422 Unprocessable Entity` y `500 Internal Server Error`.
+### `GET /incidents/{incident_id}`
 
-### Consultar un incidente
+Detalle de un incidente. `200 OK`, o `404 Not Found` si no existe.
 
-```http
-GET /incidents/{incident_id}
-```
+## Reglas comunes
 
-Consulta propuesta del detalle de un incidente.
+- Las fechas de las respuestas se expresan en UTC con sufijo `Z`.
+- Los errores de validación usan el formato estándar de FastAPI (`detail`).
+- La API no guarda claves, contraseñas ni tokens en el código fuente.
 
-Códigos propuestos: `200 OK`, `401 Unauthorized`, `403 Forbidden`,
-`404 Not Found`, `422 Unprocessable Entity` y `500 Internal Server Error`.
+## Pendiente
 
-## Reglas propuestas comunes
-
-- Las fechas de solicitud usarán ISO 8601 con zona horaria; las respuestas se
-  expresarán en UTC con sufijo `Z`.
-- Las respuestas usarán formato JSON.
-- Los errores de validación usarán el formato estándar de FastAPI (`detail`).
-- El difuminado facial de las evidencias es un requisito futuro; el componente
-  responsable y el mecanismo de acceso deben definirse antes de implementarlo.
-- La API no almacenará claves, contraseñas ni tokens en el código fuente.
-
-## Decisiones que requieren acuerdo del equipo
-
-- Confirmar los campos y valores de `violation_type` y `beacon_alert.status`.
-- Confirmar si el identificador será opaco (`incident-001`) o UUID.
-- Confirmar el almacenamiento de evidencia y el mecanismo de acceso.
-- Definir los roles que podrán registrar, consultar y gestionar incidentes.
-- Confirmar los límites de paginación y el orden de resultados.
-- Implementar las rutas y pruebas después de aprobar este contrato.
+- **Autenticación de usuarios (RF-17, JWT) y permisos por rol (RNF-07).** Las
+  rutas `GET` quedan abiertas hasta implementarla junto con el dashboard; hoy
+  solo `POST /incidents` exige token. Es una de las decisiones abiertas del
+  SRS v0.3 (§4.6).
+- **Acceso a la evidencia.** `evidence_path` es solo una referencia; la API
+  todavía no sirve el archivo.
+- **Baliza.** El agente informa `beacon_alert.status = "skipped_offline"` hasta
+  que exista la orden `POST /alert` hacia la baliza (firmware, tarea 4.4).
+- **Cambio de estado de un incidente** (revisado, cerrado, falso positivo)
+  desde el dashboard (CU-07).

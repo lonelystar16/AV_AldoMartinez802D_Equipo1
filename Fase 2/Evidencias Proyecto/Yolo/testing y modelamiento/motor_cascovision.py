@@ -31,14 +31,7 @@ def buscar_raiz_proyecto(inicio: Path) -> Path:
 RAIZ = buscar_raiz_proyecto(Path(__file__).resolve().parent)
 
 RUTA_MODELO_RELATIVA = (
-    Path("Fase 2")
-    / "Evidencias Proyecto"
-    / "Yolo"
-    / "runs"
-    / "detect"
-    / "train-9"
-    / "resultado"
-    / "best.pt"
+    Path("Fase 2") / "Evidencias Proyecto" / "models" / "cascovision_yolo26s.pt"
 )
 _CANDIDATOS = [RAIZ / RUTA_MODELO_RELATIVA, Path.cwd() / RUTA_MODELO_RELATIVA]
 RUTA_MODELO_EPP = next((p for p in _CANDIDATOS if p.is_file()), _CANDIDATOS[0])
@@ -367,14 +360,18 @@ class MonitorEPP:
 
     # ---------- evidencia ----------
     def guardar_evidencia(self, frame):
-        """Guarda el frame ya difuminado en incidents/AAAA/MM/DD/."""
+        """Guarda el frame ya difuminado en incidents/AAAA/MM/DD/.
+
+        Devuelve la ruta relativa a la carpeta padre de la evidencia
+        (``incidents/AAAA/MM/DD/archivo.jpg``): la API rechaza rutas absolutas.
+        """
         ahora = datetime.now(timezone.utc)
-        carpeta = self.carpeta_evidencia / ahora.strftime("%Y/%m/%d")
+        relativa = Path(self.carpeta_evidencia.name) / ahora.strftime("%Y/%m/%d")
+        carpeta = self.carpeta_evidencia.parent / relativa
         carpeta.mkdir(parents=True, exist_ok=True)
         nombre = f"incidente-{ahora.strftime('%H%M%S-%f')}.jpg"
-        ruta = carpeta / nombre
-        cv2.imwrite(str(ruta), frame)
-        return ruta.as_posix(), ahora
+        cv2.imwrite(str(carpeta / nombre), frame)
+        return (relativa / nombre).as_posix(), ahora
 
     def _registrar(self, frame, pid, estado, confianza):
         """Crea el incidente y lo entrega al callback si hay uno."""
