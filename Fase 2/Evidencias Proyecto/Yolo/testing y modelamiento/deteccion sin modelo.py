@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # 1. Cargar el modelo
-model = YOLO("yolo26s.pt")
+model = YOLO(r"Fase 2\Evidencias Proyecto\models\cascovision_yolo26s.pt")
 
 # 2. Inferencia en webcam sin FP16 forzado (usar half=False o omitirlo)
 # Se usa stream=True para iterar eficientemente frame por frame
