@@ -30,16 +30,27 @@ datasets/
 # Dataset y corridas de entrenamiento de YOLO: se descargan o se regeneran.
 # Se conserva solo train-9 (métricas y gráficos de la corrida del modelo
 # entregado); sus pesos quedan fuera por la regla *.pt.
-Fase 2/Evidencias Proyecto/Yolo/dataset/images/
-Fase 2/Evidencias Proyecto/Yolo/dataset/labels/
+#
+# OJO: en .gitignore la barra invertida es carácter de escape, no separador.
+# Estas rutas deben llevar "/" para que la regla aplique.
+Fase 2/Evidencias Proyecto/Yolo/dataset/train/
+Fase 2/Evidencias Proyecto/Yolo/dataset/valid/
+Fase 2/Evidencias Proyecto/Yolo/dataset/test/
 Fase 2/Evidencias Proyecto/Yolo/runs/detect/*
 !Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-9/
+
+# Ultralytics crea las carpetas de validacion en el directorio de trabajo
+# desde el que se lanza. Si se evalua desde la raiz, aparece aqui.
+runs/
 
 # Salidas de ejecución local: evidencia, incidentes y cola del agente Edge
 Fase 2/Evidencias Proyecto/incidents/
 Fase 2/Evidencias Proyecto/db/incidents.json
 Fase 2/Evidencias Proyecto/db/cola_incidentes.jsonl
 *.tmp
+
+# Cache de etiquetas que genera Ultralytics al escanear el dataset
+*.cache
 
 # Cascadas Haar que descargan los scripts de prueba
 haarcascade_*.xml
@@ -53,4 +64,9 @@ Thumbs.db
 
 # Archivos temporales de trabajo del agente
 .ai/
+# OJO: en Windows git compara los nombres sin distinguir mayusculas
+# (core.ignorecase=true), asi que una regla 'agents.md' tambien capturaba
+# 'AGENTS.md'. La barra inicial la ancla a la raiz, y se excluye el archivo
+# del proyecto.
 agents.md
+!/.opencode/AGENTS.md
