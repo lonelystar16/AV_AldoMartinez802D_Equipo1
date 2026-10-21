@@ -6,25 +6,45 @@
 
 ---
 
+## 0. Estado actual
+
+> 🚧 **En entrenamiento.** El detector de 5 clases (`train-10`) está en marcha
+> sobre el dataset de Roboflow. Las métricas de este documento describen
+> **train-9**, el modelo de 11 clases, que queda como línea base. La sección
+> 3.5 recoge el estado de la corrida nueva.
+
+---
+
 ## 1. Alcance del modelo
 
-El modelo detecta elementos de seguridad en el torso de las personas dentro de
-cuadro. El agente Edge opera sobre el subconjunto de **casco** y **chaleco
-reflectante**: son los dos elementos asociados a la baliza de alerta. El resto de
-implementos que el modelo reconoce se detecta, pero no genera incidentes.
+El detector actual opera sobre un esquema de **5 clases**, todas del producto:
 
-| Elemento | Clase del modelo | Resultado |
-| --- | --- | --- |
-| Casco | `helmet` | cumple |
-| Sin casco | `no_helmet` | `missing_helmet` |
-| Chaleco reflectante | `vest` | cumple |
-| Sin chaleco | `none` en torso | `missing_reflective_vest` |
+| Id | Clase | Qué es | Resultado |
+| --- | --- | --- | --- |
+| 0 | `helmet` | Casco sobre la cabeza | cumple |
+| 1 | `no_helmet` | Persona **sin** casco | `missing_helmet` |
+| 2 | `no_vest` | Persona **sin** chaleco | `missing_reflective_vest` |
+| 3 | `Person` | Persona completa | ancla de la asociación |
+| 4 | `vest` | Chaleco reflectante | cumple |
 
-El modelo trabaja con 11 clases: `helmet`, `gloves`, `vest`, `boots`, `goggles`,
-`none`, `Person`, `no_helmet`, `no_goggle`, `no_gloves`, `no_boots`. Las que
-interesan al producto son `Person`, `helmet`, `no_helmet` y `vest`.
+La diferencia con el modelo anterior (train-9, 11 clases) es que **las
+infracciones se detectan de forma positiva**: antes había que inferir que
+faltaba un casco por su ausencia, y la clase `none` genérica se reinterpretaba
+por zona del cuerpo. Ahora `no_helmet` y `no_vest` son clases explícitas, y la
+heurística de reinterpretación desapareció.
 
-### La clase `none` y su reinterpretación por zona
+El mapeo de clases se determinó combinando contención de cajas, geometría
+relativa a la persona, inspección visual de recortes y exclusividad mutua.
+Está documentado en [`../docs/MODELO.md`](../docs/MODELO.md).
+
+### El modelo anterior (train-9)
+
+Para referencia histórica, el modelo de 11 clases tenía: `helmet`, `gloves`,
+`vest`, `boots`, `goggles`, `none`, `Person`, `no_helmet`, `no_goggle`,
+`no_gloves`, `no_boots`. Las seis clases que el producto no usa hundían el
+promedio de mAP@0,5 y no permitían una comparación justa de clases.
+
+### La clase `none` y su reinterpretación por zona (modelo de 11 clases)
 
 El modelo no incluye una clase `no_vest`. La clase `none` (id 5) es una caja
 genérica de "sin implemento en esta zona", por lo que el motor la reinterpreta
@@ -68,17 +88,48 @@ casco queda por debajo y el 91,5% de las de chaleco por encima.
 
 ### Dataset
 
-Es el dataset **Construction-PPE de Ultralytics**
-(<https://docs.ultralytics.com/datasets/detect/construction-ppe>). **No se
-versiona en Git** por su tamaño (~258 MB). Para entrenar, dejar las imágenes y
-las etiquetas en `Yolo/dataset/images/` y `Yolo/dataset/labels/`, con las
-divisiones `train`, `val` y `test`. Se pueden obtener de dos formas:
+Hay **dos datasets** distintos en el historial del proyecto.
 
-- pedir a Joaquín la copia exacta usada en `train-9`, recomendado para
-  reproducir las métricas;
-- descargarlo con Ultralytics (`yolo train data=construction-ppe.yaml` lo baja
-  solo) y copiar sus carpetas `images/` y `labels/` a `Yolo/dataset/`. Si la
-  versión publicada cambió, las métricas pueden variar.
+#### Dataset actual (5 clases) — el que se usa para `train-10`
+
+Export de **Roboflow** del conjunto Construction-PPE, con esquema de 5 clases
+propio. **No se versiona en Git** por su tamaño (~440 MB). La configuración
+está en `Yolo/dataset/construccion-implementos.yaml` y las imágenes y
+etiquetas en `Yolo/dataset/{train,valid,test}/{images,labels}/`.
+
+| División | Imágenes |
+| --- | --- |
+| train | 5.033 |
+| valid | 732 |
+| test | 129 |
+
+Distribución de instancias:
+
+| División | `helmet` | `no_helmet` | `no_vest` | `Person` | `vest` |
+| --- | --- | --- | --- | --- | --- |
+| train | 5.994 | 4.871 | 5.669 | 9.234 | 2.916 |
+| valid | 835 | 618 | 722 | 1.121 | 296 |
+| test | 147 | 114 | 143 | 205 | 54 |
+
+Los tres splits son **disjuntos por nombre de archivo original** de Roboflow
+(sin el sufijo `.rf.<hash>`): una misma imagen con distintas augmentations no
+cae en dos splits, para que las métricas no se inflen.
+
+> `construccion-implementos.yaml` **no declara `path:`**. Ultralytics resuelve
+> entonces las rutas contra la carpeta del propio YAML, así que el
+> entrenamiento funciona desde cualquier directorio de trabajo. Declarar
+> `path:` ataría el dataset al directorio desde el que se lanza la corrida.
+
+> ⚠️ El `nc` del YAML debe coincidir con el número real de clases del
+> dataset. Si no coincide, Ultralytics **no lanza error**: marca la imagen como
+> corrupta y la descarta en silencio. Con `nc: 4` sobre este dataset se perdía
+> el 30 % de las imágenes de train.
+
+#### Dataset anterior (11 clases) — el de `train-9`
+
+**Construction-PPE de Ultralytics**
+(<https://docs.ultralytics.com/datasets/detect/construction-ppe>), con 11
+clases. Sus métricas son las de la sección 3.
 
 | División | Imágenes |
 | --- | --- |
@@ -157,6 +208,65 @@ El criterio de aceptación del SRS exige **mAP@0,5 ≥ 0,90** y **recall ≥ 0,8
 | Recall (regla de chaleco) | 0,890 | ≥ 0,85 | **cumple** |
 
 La versión actual es la línea base del modelado.
+
+### 3.5 Detector de 5 clases (`train-10`)
+
+> 🚧 **En entrenamiento.** Los números de esta sección se completan cuando
+> termine la corrida y se evalúe sobre el split `test`.
+
+#### Línea base medida sobre el mismo split `test`
+
+Para tener una comparación justa, el modelo de 11 clases se evaluó sobre el
+**mismo** split `test` de 129 imágenes, aplicando su propia lógica de decisión
+(inferir la ausencia de casco) sobre el mismo ground truth:
+
+| regla | precisión | recall | exactitud |
+| --- | --- | --- | --- |
+| ¿lleva casco? | 1,000 | 0,643 | 0,643 |
+| ¿lleva chaleco? | 0,951 | 0,583 | 0,566 |
+
+El modelo anterior era muy preciso —casi nunca acusaba a alguien que sí
+llevaba casco— pero se le escapaban muchos casos: su recall de 0,643 en la
+regla de casco es la medida de ese problema. Es el mismo comportamiento que
+documenta la sección 3.2 para `train-9` (medido con otro dataset y otro
+protocolo).
+
+#### Configuración de la corrida
+
+| Parámetro | Valor |
+| --- | --- |
+| Modelo base | `yolo26s.pt` (COCO, 80 clases) |
+| Datos | `dataset/construccion-implementos.yaml` (5 clases) |
+| Épocas | 100 (`patience` 30) |
+| `imgsz` | 640 |
+| `batch` | 16 |
+| Optimizador | `auto` (AdamW) |
+| `cos_lr` | `True` |
+| `close_mosaic` | 10 |
+| `workers` | 4 |
+| Semilla | 0 |
+
+Se parte de la **base limpia** y no del checkpoint de 11 clases: el vocabulario
+de clases es incompatible, así que el mapeo por nombre de Ultralytics no
+trasladaría pesos útiles de las clases negativas. La clase `Person` sí hereda
+sus pesos de COCO, porque el nombre coincide.
+
+#### Protocolo de evaluación
+
+```bash
+uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/evaluacion.py" \
+    --model "Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-10/weights/best.pt" \
+    --perfil 5clases --split test --json informe.json
+```
+
+El protocolo completo y cómo leer las cifras está en
+[`../docs/MODELO.md`](../docs/MODELO.md).
+
+> ⚠️ **El mAP@0,5 promedio sube por construcción.** El dataset anterior tenía
+> 11 clases de las cuales 6 el producto no usaba (guantes, botas, gafas y sus
+> negativos), y esas hundían el promedio. El dataset nuevo tiene 5 clases, todas
+> del producto. La comparación honesta son las **reglas de negocio** y las
+> **métricas por clase**, no el promedio.
 
 ### 3.4 Diagnóstico: sobreajuste
 

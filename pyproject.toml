@@ -1,0 +1,63 @@
+[project]
+name = "cascovision"
+version = "0.1.0"
+description = "CascoVision: deteccion automatizada de EPP mediante vision computacional"
+readme = "README.md"
+authors = [
+    { name = "Equipo 1 - Seccion 802D", email = "127434705+jikonix@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+
+# Dependencias del runtime de la API REST.
+dependencies = [
+    "fastapi>=0.156.8",
+    "pydantic>=2.14.1",
+    "psycopg>=3.3.6",
+    "uvicorn>=0.54.0",
+]
+
+# La API no necesita opencv ni torch: son del agente Edge y del detector.
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "httpx>=0.28.1",
+]
+yolo = [
+    "ultralytics>=8.4.183",
+    "torch>=2.14.1",
+    "torchvision>=0.29.1",
+    # ByteTrack (tracker del agente Edge) importa 'lap' de forma directa.
+    "lap>=0.5.12",
+    # OpenCV anterior a 5.0: la 5.x elimino cv2.CascadeClassifier, que usan
+    # los scripts de prueba. El motor usa YuNet (cv2.FaceDetectorYN), que
+    # sigue disponible desde 4.5.4.
+    "opencv-python>=4.11,<5.0",
+    "numpy>=1.26",
+]
+
+# PyTorch no publica wheels CUDA en PyPI para Windows: se toma del indice
+# oficial de PyTorch. El marcador limita el indice a Linux y Windows.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["Fase 2/Evidencias Proyecto/tests"]
+# Permite importar la API sin el sys.path.insert manual de cada prueba.
+pythonpath = ["Fase 2/Evidencias Proyecto/src/api"]
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14.0"]
+build-backend = "uv_build"
