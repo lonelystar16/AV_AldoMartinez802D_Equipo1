@@ -178,9 +178,6 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 ## Estructura del repositorio
 
 ```
-├── .opencode/                        Guía del proyecto y skills para el agente
-│   ├── AGENTS.md                     Convenciones, comandos y estructura
-│   └── skills/                       cascovision-api · -edge · -modelo · -docs · -git
 ├── Fase 1/                           Evidencias de la definición del proyecto
 ├── Fase 2/
 │   ├── Evidencias Grupales/        D1 SRS · carta Gantt · D2 Diseño · D3 Pruebas · D4 Manual técnico
@@ -194,13 +191,17 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │       │   └── firmware/           Firmware de la baliza zonal
 │       ├── Yolo/                   Entrenamiento, motor de detección y agente Edge (provisional)
 │       │   ├── dataset/            Dataset de 5 clases (no se versiona)
+│       │   ├── experiments/        Scripts de experimentación (obsoletos, no son pipeline)
 │       │   ├── models/             Checkpoints y detector de rostros YuNet
 │       │   └── runs/detect/        Corridas de entrenamiento
 │       ├── models/                 Modelo YOLO26 entregado y métricas
 │       ├── db/migrations/          Esquema SQL de PostgreSQL
 │       ├── tests/                  Pruebas automatizadas
-│       └── docs/diagramas/         Diagramas UML y de arquitectura
+│       └── docs/                   Documentación de la API y del modelo
+│           ├── API.md
+│           ├── MODELO.md           Mapeo de clases y protocolo de evaluación
+│           └── diagramas/
 ├── pyproject.toml                   Dependencias (uv) y configuración de pytest
-├── uv.lock                          Resolucion exacta de dependencias
+├── uv.lock                          Resolución exacta de dependencias
 └── Fase 3/                         Presentación final
 ```

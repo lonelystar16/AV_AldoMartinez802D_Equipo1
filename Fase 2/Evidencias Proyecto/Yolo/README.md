@@ -35,8 +35,7 @@ heurística de reinterpretación desapareció.
 
 El mapeo de clases se determinó combinando contención de cajas, geometría
 relativa a la persona, inspección visual de recortes y exclusividad mutua.
-Está documentado en
-[`.opencode/skills/cascovision-modelo/references/clases.md`](../../../.opencode/skills/cascovision-modelo/references/clases.md).
+Está documentado en [`../docs/MODELO.md`](../docs/MODELO.md).
 
 ### El modelo anterior (train-9)
 
@@ -261,7 +260,7 @@ uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/evaluacion
 ```
 
 El protocolo completo y cómo leer las cifras está en
-[`.opencode/skills/cascovision-modelo/references/metricas.md`](../../../.opencode/skills/cascovision-modelo/references/metricas.md).
+[`../docs/MODELO.md`](../docs/MODELO.md).
 
 > ⚠️ **El mAP@0,5 promedio sube por construcción.** El dataset anterior tenía
 > 11 clases de las cuales 6 el producto no usaba (guantes, botas, gafas y sus

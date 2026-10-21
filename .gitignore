@@ -65,8 +65,6 @@ Thumbs.db
 # Archivos temporales de trabajo del agente
 .ai/
 # OJO: en Windows git compara los nombres sin distinguir mayusculas
-# (core.ignorecase=true), asi que una regla 'agents.md' tambien capturaba
-# 'AGENTS.md'. La barra inicial la ancla a la raiz, y se excluye el archivo
-# del proyecto.
+# (core.ignorecase=true), asi que esta regla tambien capturaria
+# 'AGENTS.md'. Se ancla a la raiz con la barra inicial.
 agents.md
-!/.opencode/AGENTS.md
