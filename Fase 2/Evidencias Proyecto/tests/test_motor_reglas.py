@@ -19,6 +19,7 @@ sys.path.insert(0, str(MOTOR))
 from motor_cascovision import (  # noqa: E402
     ESTADOS_INFRACCION,
     POLITICA_SIN_DATOS,
+    MonitorEPP,
     clave_violacion,
     confirmar_infracciones,
     evaluar_persona,
@@ -136,3 +137,28 @@ def test_solapamiento_mide_fraccion_contenida() -> None:
 
 def test_estados_de_infraccion_estan_declarados() -> None:
     assert ESTADOS_INFRACCION == {"sin_casco", "sin_chaleco"}
+
+
+# ---------- asociacion del EPP con la persona ----------
+
+def test_solo_se_asocian_los_elementos_dentro_de_la_persona() -> None:
+    """El EPP de otra persona no debe contarse como infraccion de esta."""
+    persona = {"nombre": "Person", "conf": 0.9, "caja": (100, 100, 300, 400), "id": 1}
+    epps = [
+        epp("no_helmet", caja=(150, 110, 220, 160)),
+        epp("no_vest", caja=(130, 200, 280, 330)),
+        # Fuera de la persona: pertenece a otra.
+        epp("helmet", caja=(500, 500, 600, 600)),
+    ]
+    partes = MonitorEPP._partes_de(epps, persona)
+    assert sorted(p["nombre"] for p in partes) == ["no_helmet", "no_vest"]
+
+
+def test_persona_con_casco_y_chaleco_cumple() -> None:
+    persona = {"nombre": "Person", "conf": 0.9, "caja": (0, 0, 400, 500), "id": 2}
+    epps = [
+        epp("helmet", caja=(100, 20, 200, 80)),
+        epp("vest", caja=(80, 150, 320, 400)),
+    ]
+    partes = MonitorEPP._partes_de(epps, persona)
+    assert evaluar_persona(partes) == frozenset()
