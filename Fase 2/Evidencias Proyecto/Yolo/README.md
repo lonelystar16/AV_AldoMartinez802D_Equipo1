@@ -8,10 +8,10 @@
 
 ## 0. Estado actual
 
-> 🚧 **En entrenamiento.** El detector de 5 clases (`train-10`) está en marcha
-> sobre el dataset de Roboflow. Las métricas de este documento describen
-> **train-9**, el modelo de 11 clases, que queda como línea base. La sección
-> 3.5 recoge el estado de la corrida nueva.
+> 🚧 **Detector de 5 clases en producción.** La corrida `train-10` cerró por
+> *early stopping* en la época 94, con la mejor época en la 64. El modelo
+> entregado es [`models/cascovision_yolo26s.pt`](../models/). La sección 3.5
+> recoge sus métricas y la comparación con la línea base `train-9`.
 
 ---
 
@@ -211,25 +211,60 @@ La versión actual es la línea base del modelado.
 
 ### 3.5 Detector de 5 clases (`train-10`)
 
-> 🚧 **En entrenamiento.** Los números de esta sección se completan cuando
-> termine la corrida y se evalúe sobre el split `test`.
+Corrida cerrada por *early stopping* en la época 94, con la mejor época en la
+**64** (`patience` 30). El modelo entregado es
+[`models/cascovision_yolo26s.pt`](../models/), 19,4 MB.
 
-#### Línea base medida sobre el mismo split `test`
+#### Métricas por clase
 
-Para tener una comparación justa, el modelo de 11 clases se evaluó sobre el
-**mismo** split `test` de 129 imágenes, aplicando su propia lógica de decisión
-(inferir la ausencia de casco) sobre el mismo ground truth:
+Evaluación sobre el split `test` (129 imágenes):
 
-| regla | precisión | recall | exactitud |
+| Clase | mAP@0,5 | mAP@0,5:0,95 | Precisión | *Recall* |
+| --- | --- | --- | --- | --- |
+| `vest` | 0,953 | 0,725 | 0,911 | 0,963 |
+| `Person` | 0,909 | 0,667 | 0,899 | 0,826 |
+| `no_helmet` | 0,844 | 0,544 | 0,859 | 0,802 |
+| `no_vest` | 0,842 | 0,507 | 0,824 | 0,720 |
+| `helmet` | 0,836 | 0,589 | 0,762 | 0,784 |
+| **promedio** | **0,877** | **0,606** | 0,791 | 0,784 |
+
+#### Por decisión de negocio
+
+La métrica que importa es si el sistema acierta al declarar una infracción. Para
+comparar conjustice, el modelo de 11 clases se evaluó sobre el **mismo** split
+`test`, aplicando su propia lógica de decisión (inferir la ausencia de casco)
+sobre el mismo ground truth:
+
+| regla | `train-9` (11 clases) | `train-10` (5 clases) | Mejora |
 | --- | --- | --- | --- |
-| ¿lleva casco? | 1,000 | 0,643 | 0,643 |
-| ¿lleva chaleco? | 0,951 | 0,583 | 0,566 |
+| ¿lleva casco? | P 1,000 · R 0,643 · E 0,643 | **P 0,986 · R 0,947 · E 0,934** | *recall* **+0,304** |
+| ¿lleva chaleco? | P 0,951 · R 0,583 · E 0,566 | **P 1,000 · R 0,887 · E 0,887** | *recall* **+0,304** |
 
-El modelo anterior era muy preciso —casi nunca acusaba a alguien que sí
-llevaba casco— pero se le escapaban muchos casos: su recall de 0,643 en la
-regla de casco es la medida de ese problema. Es el mismo comportamiento que
-documenta la sección 3.2 para `train-9` (medido con otro dataset y otro
-protocolo).
+**El RNF-05 se cumple en las dos reglas de negocio.** El *recall* pasa de 0,643 a
+0,947 en la regla de casco, y de 0,583 a 0,887 en la de chaleco. Ninguna de las
+dos cumplía el umbral de 0,85 antes.
+
+La mejora viene del *recall*, no de un canje de precisión por *recall*: la
+precisión se mantiene en ~0,99. El modelo anterior era muy preciso —casi nunca
+acusaba a alguien que sí llevaba casco— pero se le escapaban muchos casos,
+porque la infracción se infería de la **ausencia** de un casco. Con `no_helmet`
+y `no_vest` como clases negativas explícitas, el detector la declara
+directamente.
+
+#### Estado frente al RNF-05
+
+| Métrica | Obtenido | Requerido | Estado |
+| --- | --- | --- | --- |
+| *Recall* (regla de casco) | 0,947 | ≥ 0,85 | **cumple** |
+| *Recall* (regla de chaleco) | 0,887 | ≥ 0,85 | **cumple** |
+| mAP@0,5 (promedio de 5 clases) | 0,877 | ≥ 0,90 | por debajo |
+
+> ⚠️ **El mAP@0,5 promedio no es comparable con el de `train-9`.** El dataset
+> anterior tenía 11 clases de las cuales 6 el producto no usaba (guantes, botas,
+> gafas y sus negativos), y esas hundían el promedio a 0,611. El dataset nuevo
+> tiene 5 clases, todas del producto, así que el promedio sube por
+> construcción y no por mejor modelo. La comparación honesta son las **reglas
+> de negocio** y las **métricas por clase**, no el promedio.
 
 #### Configuración de la corrida
 
@@ -237,7 +272,8 @@ protocolo).
 | --- | --- |
 | Modelo base | `yolo26s.pt` (COCO, 80 clases) |
 | Datos | `dataset/construccion-implementos.yaml` (5 clases) |
-| Épocas | 100 (`patience` 30) |
+| Épocas | 100 (`patience` 30) → **parada en la 94** |
+| Mejor época | **64** |
 | `imgsz` | 640 |
 | `batch` | 16 |
 | Optimizador | `auto` (AdamW) |
@@ -245,6 +281,7 @@ protocolo).
 | `close_mosaic` | 10 |
 | `workers` | 4 |
 | Semilla | 0 |
+| Tiempo total | ~3,2 h |
 
 Se parte de la **base limpia** y no del checkpoint de 11 clases: el vocabulario
 de clases es incompatible, así que el mapeo por nombre de Ultralytics no
@@ -254,7 +291,7 @@ sus pesos de COCO, porque el nombre coincide.
 #### Protocolo de evaluación
 
 ```bash
-uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/evaluacion.py" \
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/evaluacion.py" \
     --model "Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-10/weights/best.pt" \
     --perfil 5clases --split test --json informe.json
 ```
@@ -262,11 +299,25 @@ uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/evaluacion
 El protocolo completo y cómo leer las cifras está en
 [`../docs/MODELO.md`](../docs/MODELO.md).
 
-> ⚠️ **El mAP@0,5 promedio sube por construcción.** El dataset anterior tenía
-> 11 clases de las cuales 6 el producto no usaba (guantes, botas, gafas y sus
-> negativos), y esas hundían el promedio. El dataset nuevo tiene 5 clases, todas
-> del producto. La comparación honesta son las **reglas de negocio** y las
-> **métricas por clase**, no el promedio.
+#### Diagnóstico y línea de trabajo pendiente
+
+La curva de validación se aplanó desde la época 45 en torno a 0,845-0,854 de
+mAP@0,5, mientras las pérdidas de entrenamiento siguieron bajando: la señal de
+sobreajuste de `train-9` se repite, aunque con un techo mucho más alto (0,88
+frente a 0,62).
+
+El techo de ~0,88 de mAP@0,5 se explica por dos factores:
+
+1. **Desequilibrio de clases**: `vest` tiene 181 instancias en validación frente
+   a 492 de `Person`.
+2. **La clase `no_vest` es la más débil** (0,507 de mAP@0,5:0,95). Es la clase
+   que reemplaza la antigua `none`, que se reinterpretaba por zona del cuerpo:
+   la red tiene que aprender a distinguir "torso sin chaleco" de "torso con
+   chaleco" solo por la ausencia de reflectante, que es la tarea que peor
+   resuelve un detector de conjunto cerrado.
+
+La línea de trabajo pendiente es atacar esa clase: más ejemplos de `no_vest`, o
+una versión del dataset que marque explícitamente el torso.
 
 ### 3.4 Diagnóstico: sobreajuste
 
@@ -296,9 +347,9 @@ Factores que explican el comportamiento:
 
 | Componente | Ruta | Función |
 | --- | --- | --- |
-| Motor de análisis | `Yolo/testing y modelamiento/motor_cascovision.py` | Detección, zonas, difuminado y registro de incidentes |
-| Monitoreo local | `Yolo/testing y modelamiento/monitoreo_v2.py` | Ejecuta el motor contra la cámara |
-| Agente Edge | `Yolo/testing y modelamiento/monitoreo_api.py` | Reporta los incidentes a la API |
+| Motor de análisis | `Yolo/modelamiento/motor_cascovision.py` | Detección, zonas, difuminado y registro de incidentes |
+| Monitoreo local | `Yolo/modelamiento/monitoreo_v2.py` | Ejecuta el motor contra la cámara |
+| Agente Edge | `Yolo/modelamiento/monitoreo_api.py` | Reporta los incidentes a la API |
 | API REST | `src/api/app/main.py` | `/health` y rutas de incidentes |
 | Persistencia | `src/api/app/almacen.py` | Almacenamiento en JSON, encapsulado para migrar a PostgreSQL |
 
@@ -318,18 +369,17 @@ Cada infracción confirmada guarda el frame, ya con los rostros difuminados, en 
 
 ## 5. Dependencias
 
-Entorno validado: **Python 3.12**. Ver
-[`requirements-yolo.txt`](../requirements-yolo.txt).
+Entorno validado: **Python 3.12**. El proyecto usa **uv** como fuente única de
+dependencias, con el grupo `yolo` para el motor de detección:
 
 ```bash
-cd "Fase 2/Evidencias Proyecto"
-python -m pip install -r requirements-yolo.txt
+uv sync --group dev --group yolo
 ```
 
-El archivo instala, en este orden: PyTorch con CUDA 12.6 desde el índice de
+Ese grupo instala, en este orden: PyTorch con CUDA 12.6 desde el índice de
 PyTorch, Ultralytics 8.4 (necesario para cargar un checkpoint YOLO26), OpenCV
 anterior a 5.0, NumPy y `lap` (el seguimiento de ByteTrack). En un equipo sin GPU
-NVIDIA, quitar la línea `--extra-index-url` y el sufijo `+cu126` para instalar
+NVIDIA, hay que quitar el índice de PyTorch del `pyproject.toml` para instalar
 la versión de PyTorch para CPU.
 
 ### Notas del entorno
@@ -354,30 +404,27 @@ la versión de PyTorch para CPU.
 
 ### Monitoreo y API
 
-Desde la carpeta `Fase 2/Evidencias Proyecto`:
+Desde la raíz del repositorio:
 
 ```bash
-cd "Fase 2/Evidencias Proyecto"
-
 # Monitoreo local, sin API
-python "Yolo/testing y modelamiento/monitoreo_v2.py"
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_v2.py"
 
 # Agente Edge: reporta los incidentes a la API
-python -m uvicorn app.main:app --app-dir src/api --reload
-python "Yolo/testing y modelamiento/monitoreo_api.py"
+uv run uvicorn app.main:app --app-dir "Fase 2/Evidencias Proyecto/src/api" --reload
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_api.py"
 ```
 
 Presionar `q` en la ventana de video para finalizar.
 
 ### Entrenamiento
 
-El entrenamiento se lanza **desde la raíz del repositorio**, porque el dataset
-usa una ruta relativa a esa carpeta. El modelo base `yolo26s.pt` no se versiona:
-Ultralytics lo descarga automáticamente la primera vez que se usa.
+El entrenamiento se lanza **desde la raíz del repositorio**. El modelo base
+`yolo26s.pt` no se versiona: Ultralytics lo descarga automáticamente la
+primera vez que se usa.
 
 ```bash
-cd <raíz-del-repositorio>
-python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/entrenamiento.py"
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py"
 ```
 
 ### Anonimización de la evidencia

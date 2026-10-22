@@ -3,7 +3,7 @@ import os
 import urllib.request
 from ultralytics import YOLO
 
-# 1. Ruta local donde se guardará el archivo en tu carpeta 'testing y modelamiento'
+# 1. Ruta local donde se guardará el archivo en tu carpeta 'modelamiento'
 ruta_cascade_local = 'haarcascade_eye.xml'
 
 # Si el archivo no existe, lo descargamos automáticamente
@@ -24,7 +24,7 @@ model = YOLO(r"Fase 2\Evidencias Proyecto\models\cascovision_yolo26s.pt")
 model.model.float()
 
 # 3. Cargar imagen de prueba
-ruta_imagen = r"Fase 2\Evidencias Proyecto\Yolo\testing y modelamiento\testeo.jpg"
+ruta_imagen = r"Fase 2\Evidencias Proyecto\Yolo\modelamiento\testeo.jpg"
 frame = cv2.imread(ruta_imagen)
 
 if frame is None:

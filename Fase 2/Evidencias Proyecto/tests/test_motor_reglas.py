@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-MOTOR = Path(__file__).parents[1] / "Yolo" / "testing y modelamiento"
+MOTOR = Path(__file__).parents[1] / "Yolo" / "modelamiento"
 sys.path.insert(0, str(MOTOR))
 
 from motor_cascovision import (  # noqa: E402
