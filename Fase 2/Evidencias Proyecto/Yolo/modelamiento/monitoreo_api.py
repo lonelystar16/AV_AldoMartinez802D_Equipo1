@@ -26,7 +26,7 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from motor_cascovision import RAIZ, MonitorEPP  # noqa: E402
+from motor_cascovision import RAIZ, PING_SEGUNDOS, MonitorEPP  # noqa: E402
 
 API_POR_DEFECTO = "http://localhost:8000"
 COLA_INCIDENTES = RAIZ / "Fase 2" / "Evidencias Proyecto" / "db" / "cola_incidentes.jsonl"
@@ -82,6 +82,12 @@ class ReporteAPI:
             "beacon_alert": incidente["beacon_alert"],
             "person_track_id": incidente.get("person_track_id"),
             "violation_types": incidente.get("violation_types"),
+            # Momento del ciclo de vida del aviso. La API actualiza el mismo
+            # registro en el episodio, en vez de abrir uno por cada aviso.
+            "event": incidente.get("event", "inicio"),
+            "episode_id": incidente.get("episode_id"),
+            "occurred_at": incidente.get("occurred_at"),
+            "ping_count": incidente.get("ping_count"),
         }).encode("utf-8")
 
         cabeceras = {"Content-Type": "application/json"}
@@ -139,13 +145,17 @@ def main() -> None:
                             help="URL base de la API REST")
     analizador.add_argument("--fuente", type=int, default=0,
                             help="Indice de la camara (0 por defecto)")
+    analizador.add_argument("--ping", type=int, default=PING_SEGUNDOS,
+                            help=f"Segundos entre avisos de una persona que sigue "
+                                 f"sin EPP ({PING_SEGUNDOS} por defecto). 0 desactiva el ping")
     argumentos = analizador.parse_args()
 
     reporte = ReporteAPI(argumentos.api)
     if not reporte.token:
         print("Aviso: EDGE_API_TOKEN no está definido; la API rechazará los incidentes (401/503).")
     monitor = MonitorEPP(carpeta_evidencia=RAIZ_EVIDENCIA,
-                         al_registrar=reporte.enviar)
+                         al_registrar=reporte.enviar,
+                         ping_segundos=argumentos.ping)
 
     cap = cv2.VideoCapture(argumentos.fuente)
     if not cap.isOpened():
@@ -155,6 +165,14 @@ def main() -> None:
     print(f"API:     {reporte.url}/incidents")
     print(f"Cola:    {reporte.archivo_cola}")
     print(f"Evidencia:{RAIZ_EVIDENCIA}")
+    print("Evidencia: rostros difuminados con YuNet antes de guardar.")
+    print("INICIO: aviso inmediato al ver a alguien sin EPP.")
+    if argumentos.ping > 0:
+        print(f"PING:   si sigue sin cambios, se reavisa cada {argumentos.ping} s "
+              "(actualiza el mismo registro en la API).")
+    else:
+        print("PING:   desactivado (0 s).")
+    print("FIN:    aviso al cumplir, para registrar cuando termino.")
     print("Presiona 'q' para finalizar.\n")
 
     try:
@@ -165,7 +183,9 @@ def main() -> None:
             incidentes = monitor.procesar(frame)
             for incidente in incidentes:
                 marca = "OK" if reporte.disponible else "encolado"
-                print(f"  -> {incidente['violation_types']} pid={incidente['person_track_id']} [{marca}]")
+                evento = incidente.get("event", "inicio")
+                print(f"  -> {evento.upper()} {incidente['violation_types']} "
+                      f"pid={incidente['person_track_id']} [{marca}]")
             if not reporte.disponible and not reporte.pendientes:
                 enviados = reporte.vaciar_cola()
                 if enviados:

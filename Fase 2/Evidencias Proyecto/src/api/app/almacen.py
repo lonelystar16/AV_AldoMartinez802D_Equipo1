@@ -22,7 +22,9 @@ class AlmacenNoDisponible(Exception):
 
 
 class Almacen(Protocol):
-    def crear(self, registro: dict[str, Any]) -> None: ...
+    def crear_o_actualizar(self, registro: dict[str, Any]) -> None: ...
+
+    def buscar_episodio(self, episode_id: str) -> dict[str, Any] | None: ...
 
     def listar(
         self, filtros: dict[str, str], pagina: int, limite: int
@@ -68,10 +70,42 @@ class AlmacenJSON:
         )
         temporal.replace(self.archivo)
 
-    def crear(self, registro: dict[str, Any]) -> None:
+    def crear_o_actualizar(self, registro: dict[str, Any]) -> None:
+        """Guarda el registro, reutilizando el del episodio si ya existe.
+
+        Un ping o un cierre no abren un incidente nuevo: actualizan el que se
+        creó con el mismo ``episode_id``, para que la historia de la persona sin
+        EPP quede en una sola fila.
+        """
         datos = self._cargar()
-        datos.append(registro)
+        episodio = registro.get("episode_id")
+        if episodio:
+            indice = next(
+                (i for i, d in enumerate(datos) if d.get("episode_id") == episodio),
+                None,
+            )
+        else:
+            indice = next(
+                (i for i, d in enumerate(datos) if d.get("id") == registro["id"]), None
+            )
+        if indice is None:
+            datos.append(registro)
+        else:
+            # Solo se actualiza el ciclo de vida; los datos del aviso original
+            # (evidencia, confianza, tipos) se conservan.
+            datos[indice] = {**datos[indice], **{
+                campo: registro.get(campo)
+                for campo in ("event", "ping_count", "last_ping_at", "ended_at")
+                if registro.get(campo) is not None or campo == "ended_at"
+            }}
         self._guardar(datos)
+
+    def buscar_episodio(self, episode_id: str) -> dict[str, Any] | None:
+        if not episode_id:
+            return None
+        return next(
+            (d for d in self._cargar() if d.get("episode_id") == episode_id), None
+        )
 
     def listar(
         self, filtros: dict[str, str], pagina: int, limite: int
@@ -94,7 +128,8 @@ class AlmacenJSON:
 COLUMNAS = (
     "id, camera_id, zone_id, detected_at, violation_type, violation_types, "
     "confidence, evidence_path, beacon_alert_status, beacon_alert_latency_ms, "
-    "person_track_id, status, created_at"
+    "person_track_id, status, created_at, event, episode_id, ping_count, "
+    "started_at, last_ping_at, ended_at"
 )
 FILTROS_PERMITIDOS = ("zone_id", "camera_id", "violation_type", "status")
 
@@ -127,7 +162,8 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
     (
         incident_id, camera_id, zone_id, detected_at, violation_type,
         violation_types, confidence, evidence_path, beacon_status,
-        beacon_latency, person_track_id, status, created_at,
+        beacon_latency, person_track_id, status, created_at, event,
+        episode_id, ping_count, started_at, last_ping_at, ended_at,
     ) = fila
     return {
         "id": str(incident_id),
@@ -142,6 +178,12 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
         "person_track_id": person_track_id,
         "status": status,
         "created_at": created_at.astimezone(timezone.utc),
+        "event": event,
+        "episode_id": str(episode_id) if episode_id else None,
+        "ping_count": ping_count,
+        "started_at": started_at.astimezone(timezone.utc) if started_at else None,
+        "last_ping_at": last_ping_at.astimezone(timezone.utc) if last_ping_at else None,
+        "ended_at": ended_at.astimezone(timezone.utc) if ended_at else None,
     }
 
 
@@ -170,10 +212,26 @@ class AlmacenPostgres:
         except psycopg.OperationalError as exc:
             raise AlmacenNoDisponible("PostgreSQL is unavailable") from exc
 
-    def crear(self, registro: dict[str, Any]) -> None:
+    def crear_o_actualizar(self, registro: dict[str, Any]) -> None:
+        """Inserta el registro o actualiza el del mismo episodio si existe.
+
+        El ``ON CONFLICT`` sobre ``episode_id`` hace que un ping o un cierre
+        actualicen la fila del episodio en vez de duplicar el incidente. Si
+        trae un ``id`` que ya existe, también se actualiza, para tolerar
+        reintentos del agente Edge.
+        """
         self._ejecutar(
-            f"INSERT INTO incidents ({COLUMNAS}) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO incidents ("
+            "id, camera_id, zone_id, detected_at, violation_type, violation_types, "
+            "confidence, evidence_path, beacon_alert_status, beacon_alert_latency_ms, "
+            "person_track_id, status, created_at, event, episode_id, ping_count, "
+            "started_at, last_ping_at, ended_at"
+            ") VALUES ("
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
+            ") ON CONFLICT (id) DO UPDATE SET "
+            "event = EXCLUDED.event, ping_count = EXCLUDED.ping_count, "
+            "last_ping_at = EXCLUDED.last_ping_at, ended_at = EXCLUDED.ended_at, "
+            "started_at = incidents.started_at, created_at = incidents.created_at",
             (
                 registro["id"], registro["camera_id"], registro["zone_id"],
                 registro["detected_at"], registro["violation_type"],
@@ -181,9 +239,22 @@ class AlmacenPostgres:
                 registro["evidence_path"], registro["beacon_alert"]["status"],
                 registro["beacon_alert"]["latency_ms"],
                 registro["person_track_id"], registro["status"],
-                registro["created_at"],
+                registro["created_at"], registro["event"],
+                registro.get("episode_id"), registro.get("ping_count", 0),
+                registro.get("started_at"), registro.get("last_ping_at"),
+                registro.get("ended_at"),
             ),
         )
+
+    def buscar_episodio(self, episode_id: str) -> dict[str, Any] | None:
+        try:
+            UUID(episode_id)
+        except (ValueError, TypeError):
+            return None
+        filas = self._ejecutar(
+            f"SELECT {COLUMNAS} FROM incidents WHERE episode_id = %s", (episode_id,)
+        )
+        return _desde_fila(filas[0]) if filas else None
 
     def listar(
         self, filtros: dict[str, str], pagina: int, limite: int

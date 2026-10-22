@@ -9,8 +9,10 @@ El detector works con 5 clases: `helmet`, `no_helmet`, `no_vest`, `Person` y
 de una infracción: ya no hay que inferirla por la ausencia de un casco.
 """
 
+import math
 import time
 import urllib.request
+import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,14 +80,99 @@ VENTANA_SUAVIZADO = 5
 MIN_FRAMES_PARA_ALERTAR = 2
 FRAME_PARA_DESCARTAR = 45
 
+# La deteccion de 'Person' parpadea (gafas, sombra, perfil) y ByteTrack reparte
+# un id nuevo al volver. Cerrando el episodio en ese hueco, una persona que
+# nunca salio de la camara acabaria partida en varias infracciones: FIN, y unos
+# segundos despues un INICIO con otro numero. El episodio se pone en espera en
+# vez de cerrarse, y se retoma si la persona reaparece con la misma infraccion.
+# Solo se cierra de verdad cuando la espera supera este tiempo.
+GRACIA_CIERRE_SEGUNDOS = 15
+
+# Distancia maxima a la que se admite que reaparezca la misma persona, medida
+# en cajas de la propia persona. Evita enganchar el episodio de alguien que se
+# fue a una persona distinta que entra por otro lado del encuadre.
+GRACIA_CIERRE_CAJAS = 2.0
+
+# --- Ciclo de vida del aviso de una persona sin EPP ---
+#
+# El objetivo no es callar al repetidor, sino mantener el aviso vivo. Una
+# persona que sigue sin EPP genera un "ping" periodico que confirma que la
+# situacion no cambia, sin abrir un registro nuevo cada vez.
+#
+# Los tres momentos del ciclo:
+#
+#   INICIO: la persona aparece sin EPP. Se avisa de inmediato y queda
+#           registrado el momento en que empieza.
+#   PING:   la persona sigue sin EPP. Cada PING_SEGUNDOS se reenvia el aviso
+#           con los datos ya registrados, para que conste que la situacion
+#           persiste. No crea un incidente nuevo.
+#   FIN:    la persona se pone el EPP (o se pierde de vista). Se avisa del
+#           cierre para que conste cuando termino el registro.
+#
+# Si aparece OTRA persona sin EPP, su INICIO se avisa de inmediato aunque haya
+# un ping pendiente de la anterior: el numero de personas en infraccion aumento
+# y eso es informacion nueva para el prevencionista.
+#
+# PING_SEGUNDOS = 0 desactiva el ping (solo se avisa el inicio y el fin).
+PING_SEGUNDOS = 60
+
+# Un ping no crea un incidente nuevo, sino que reenvia el ya registrado con
+# este marcador. La API lo usa para actualizar el incidente en vez de crear otro.
+TIPO_EVENTO = "ping"
+
 # --- Difuminado a escala ---
-OJO_REL_ANCHO = 0.55
-OJO_REL_ALTO = 0.34
-OJO_REL_Y_SIN_LANDMARKS = 0.41
-# Respaldo sin detector: banda conservadora sobre la caja de cabeza, con el
-# percentil 25 de las medidas reales (0.14 x 0.22) para que casi nunca se salga.
-CABECA_REL_ANCHO = 0.14
-CABECA_REL_ALTO = 0.22
+#
+# El anonimato no admite fallos, pero en obra las sombras duras sobre el rostro
+# hacen que YuNet deje de encontrar la cara, o que la encuentre y devuelva
+# landmarks creíbles pero desplazados. Por eso la zona no se localiza por una
+# sola señal, sino por una cadena de respaldos, de más a menos precisa:
+#
+#   0. iluminación igualada (CLAHE) antes de mirar: recupera lo que la sombra
+#      esconde, y es lo que hace que YuNet encuentre la cara;
+#   1. landmarks de YuNet, solo si son coherentes con la geometría de la cara;
+#   2. envolvente anatómica de ojos y nariz sobre la caja de la cara;
+#   3. caja de cabeza detectada por YOLO (helmet / no_helmet);
+#   4. proporción de la cabeza sobre la caja de la persona.
+#
+# Cada rostro se difumina con UN solo rectángulo que cruza los dos ojos y baja
+# hasta la nariz. No es una banda por ojo: lo que deja identificable a una
+# persona es el conjunto ojos-nariz pegado, y dejar un hueco entre bandas
+# deja a la vista la mitad del rasgo.
+#
+# La envolvente anatómica (ZONA_ARIBA..ZONA_ABAJO) es el suelo: siempre cubre
+# cejillas y punta de la nariz. Los landmarks de YuNet solo pueden ensancharla
+# hacia arriba o hacia abajo, nunca estrecharla, porque suelen salir altos en
+# las cajas que incluyen pelo o casco.
+ZONA_REL_CENTRO_X = 0.50           # centro horizontal sin landmarks / ancho cara
+ZONA_REL_ANCHO = 0.78              # ancho de la zona / ancho de la cara
+ZONA_ARIBA = 0.30                  # borde superior / alto de la cara (cejillas)
+ZONA_ABAJO = 0.68                  # borde inferior / alto de la cara (nariz)
+ZONA_OJO_MARGEN = 0.12             # margen sobre la línea de ojos / alto cara
+ZONA_OJO_BAJA = 0.20               # descenso bajo la línea de ojos / alto cara
+ZONA_SEP_REL = 1.9                 # ancho mínimo: separación entre ojos * esto
+
+# Validación de los landmarks de YuNet. Con sombras sigue devolviendo puntos,
+# pero movidos a la sien, la mejilla o la ceja; confiar en ellos deja el
+# rostro identificable. Solo se aceptan si son coherentes con la cara.
+OJO_SEP_MIN = 0.30                 # separación mínima entre ojos / ancho de cara
+OJO_SEP_MAX = 0.80                 # separación máxima entre ojos / ancho de cara
+OJO_DESVIO_MAX_Y = 0.15            # desnivel permitido entre ojos / alto de cara
+OJO_X_MIN, OJO_X_MAX = 0.08, 0.92  # rango horizontal admitido dentro de la cara
+OJO_Y_MAX = 0.80                   # rango vertical admitido dentro de la cara
+
+# Caja de cabeza (helmet / no_helmet) cuando YuNet no encuentra la cara. Esa
+# caja puede llevar el casco puesto, así que la zona se ancla por debajo del
+# borde y cubre la mitad inferior de la caja, que es donde está la cara.
+CABEZA_ZONA_REL_Y = 0.55
+CABEZA_ZONA_REL_ANCHO = 0.72
+CABEZA_ZONA_REL_ALTO = 0.50
+
+# Último respaldo, sobre la caja de la persona: sin rostro ni cabeza detectados
+# (de espaldas, capucha, sombra profunda) la cabeza ocupa la parte alta del
+# cuerpo y la cara cae cerca del borde superior.
+PERSONA_ZONA_REL_Y = 0.115
+PERSONA_ZONA_REL_ANCHO = 0.26
+PERSONA_ZONA_REL_ALTO = 0.13
 
 COLORES = {
     "helmet": (0, 255, 0),       # Verde para casco
@@ -220,21 +307,229 @@ def cargar_yunet(ruta: Path, umbral: float = YUNET_UMBRAL):
     return cv2.FaceDetectorYN.create(str(ruta), "", (320, 240), umbral, YUNET_NMS, 5000)
 
 
+# CLAHE se crea una sola vez: el detector se ejecuta por frame y por persona.
+_CLAHE = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+
+
+def normalizar_iluminacion(imagen):
+    """Iguala la iluminación con CLAHE antes de buscar el rostro.
+
+    Es la defensa contra las sombras: YuNet encuentra bien el rostro con luz
+    pareja, pero con una sombra dura sobre la cara deja de detectarlo o devuelve
+    landmarks desplazados. Igualar el canal de luz en el espacio LAB recupera el
+    contraste local sin arruinar el color, y devuelve una imagen nueva para no
+    tocar el frame que se guarda como evidencia.
+    """
+    lab = cv2.cvtColor(imagen, cv2.COLOR_BGR2LAB)
+    luz, a, b = cv2.split(lab)
+    return cv2.cvtColor(cv2.merge((_CLAHE.apply(luz), a, b)), cv2.COLOR_LAB2BGR)
+
+
 def detectar_rostros(detector, imagen):
-    """[(caja_cara, ojos), ...] donde 'ojos' son las coordenadas x1,y1,x2,y2."""
+    """[(caja_cara, ojos), ...] donde 'caja_cara' es (x1, y1, x2, y2).
+
+    YuNet devuelve cada rostro como (x, y, w, h) mas los landmarks. Se
+    convierte a (x1, y1, x2, y2) porque el resto del motor trabaja con
+    esquinas: mixing los dos formatos hace que la zona difuminada salga con
+    ancho negativo y el rostro no se difumine.
+
+    Se le entrega la imagen con la iluminación igualada, no el frame original:
+    es lo que permite encontrar el rostro cuando hay sombra sobre la cara.
+    """
     alto, ancho = imagen.shape[:2]
     if detector.getInputSize() != (ancho, alto):
         detector.setInputSize((ancho, alto))
-    _, caras = detector.detect(imagen)
+    _, caras = detector.detect(normalizar_iluminacion(imagen))
     if caras is None:
         return []
     salida = []
     for c in caras:
-        caja = (float(c[0]), float(c[1]), float(c[2]), float(c[3]))
+        x, y, w, h = float(c[0]), float(c[1]), float(c[2]), float(c[3])
+        caja = (x, y, x + w, y + h)
         # indices 4-7: ojo derecho (x,y) e izquierdo (x,y)
         ojos = (float(c[4]), float(c[5]), float(c[6]), float(c[7]))
         salida.append((caja, ojos))
     return salida
+
+
+# ==================== DIFUMINADO DE ROSTROS ====================
+# Funciones de modulo para que los scripts de monitoreo que no usan el motor
+# (monitoreo_v1) puedan difuminar sin duplicar la logica.
+
+def dimensiones(cara):
+    """(x1, y1, ancho, alto) de una caja dada como esquinas (x1, y1, x2, y2).
+
+    El resto del motor pasa las cajas como esquinas, pero las medidas relativas
+    (ancho de la zona, separación de ojos) se expresan sobre el ancho y el alto
+    reales. Mezclar los dos formatos hace que la zona salga oversized y que la
+    validación de los landmarks use una escala equivocada.
+    """
+    x1, y1, x2, y2 = cara
+    return x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)
+
+
+def ojos_plausibles(cara, ojos) -> bool:
+    """True si los ojos de YuNet son coherentes con la geometría de la cara.
+
+    Con sombras duras YuNet devuelve puntos creíbles pero desplazados: el ojo
+    cae en la sien o en la mejilla, y la zona sale fuera, dejando el rostro
+    identificable. Se valida la separación entre ojos, el desnivel entre ellos
+    y que ambos caigan dentro de la cara.
+    """
+    fx, fy, fw, fh = dimensiones(cara)
+    if fw <= 0 or fh <= 0:
+        return False
+    (rx, ry), (lx, ly) = (ojos[0], ojos[1]), (ojos[2], ojos[3])
+    if not (OJO_SEP_MIN * fw <= math.hypot(lx - rx, ly - ry) <= OJO_SEP_MAX * fw):
+        return False
+    if abs(ly - ry) > OJO_DESVIO_MAX_Y * fh:
+        return False
+    return all(
+        fx + OJO_X_MIN * fw <= x <= fx + OJO_X_MAX * fw
+        and fy <= y <= fy + OJO_Y_MAX * fh
+        for x, y in ((rx, ry), (lx, ly))
+    )
+
+
+def zona_ojos_nariz(cara, ojos=None):
+    """Única zona difuminada de un rostro: los dos ojos y la nariz juntos.
+
+    Un solo rectángulo, de un tirón. La envolvente anatómica fija siempre el
+    suelo de la zona (cejillas y punta de la nariz); si los landmarks de YuNet
+    son coherentes, su línea de ojos ensancha esa envolvente hacia arriba y
+    hacia abajo y su separación ensancha el ancho. Nunca la estrechan: si
+    salieran mal (sombra, perfil, gafas) se ignoran y manda la anatomía.
+    El anonimato no admite fallos ni huecos en medio.
+    """
+    fx, fy, fw, fh = dimensiones(cara)
+    arriba = fy + fh * ZONA_ARIBA
+    abajo = fy + fh * ZONA_ABAJO
+    ancho = fw * ZONA_REL_ANCHO
+    cx = fx + fw * ZONA_REL_CENTRO_X
+    if ojos is not None and ojos_plausibles(cara, ojos):
+        cx = (ojos[0] + ojos[2]) / 2.0
+        linea = (ojos[1] + ojos[3]) / 2.0
+        separacion = math.hypot(ojos[2] - ojos[0], ojos[3] - ojos[1])
+        arriba = min(arriba, linea - fh * ZONA_OJO_MARGEN)
+        abajo = max(abajo, linea + fh * ZONA_OJO_BAJA)
+        ancho = max(ancho, separacion * ZONA_SEP_REL)
+    return banda_dentro(cara, cx, (arriba + abajo) / 2.0,
+                        ancho, abajo - arriba)
+
+
+def difuminar_zona(roi, zona) -> int:
+    """Desenfoque gaussiano sobre una única zona, recortada al ROI.
+
+    Devuelve 1 si llegó a difuminarse y 0 si la zona caía vacía o fuera del
+    recorte: si se dibujara fuera de la imagen, en vez de anonimizar se
+    estaria tocando otro trozo del frame.
+    """
+    bx, by, bw, bh = (int(v) for v in zona)
+    if bx < 0 or by < 0 or bw <= 0 or bh <= 0:
+        return 0
+    region = roi[by:by + bh, bx:bx + bw]
+    if region.size == 0:
+        return 0
+    k = int(min(max(bw, bh) * 2, 99)) | 1
+    roi[by:by + bh, bx:bx + bw] = cv2.GaussianBlur(region, (k, k), 0)
+    return 1
+
+
+def difumar_roi(detector, roi) -> int:
+    """Difumina la zona de ojos y nariz de cada rostro dentro del ROI.
+
+    Una sola zona continua por rostro, no una banda por ojo: lo que deja
+    identificable a la persona es el conjunto ojos-nariz pegado, y un hueco
+    entre bandas lo deja a medio tapar. Devuelve el numero de rostros
+    difuminados.
+    """
+    if roi.size == 0:
+        return 0
+    n = 0
+    for cara, ojos in detectar_rostros(detector, roi):
+        # La caja viene como esquinas; el filtro de tamaño va sobre el ancho y
+        # el alto reales, no sobre x2 e y2.
+        _, _, fw, fh = dimensiones(cara)
+        if fw < 8 or fh < 8:
+            continue
+        difuminar_zona(roi, zona_ojos_nariz(cara, ojos))
+        n += 1
+    return n
+
+
+def difuminar_cabeza(roi, cabezas, origen) -> int:
+    """Zona de ojos y nariz sobre la caja de cabeza, cuando YuNet no detecta.
+
+    'cabezas' trae las cajas de cabeza en coordenadas de la imagen completa,
+    pero 'roi' es un recorte de la persona. Hay que trasladar la caja al
+    sistema de coordenadas de la ROI, si no la zona cae fuera.
+    """
+    if not cabezas:
+        return 0
+    mejor = max(cabezas, key=lambda c: c["caja"][2] * c["caja"][3])
+    hx1, hy1, hx2, hy2 = mejor["caja"]
+    ox, oy = origen
+    cx1, cy1 = hx1 - ox, hy1 - oy
+    cx2, cy2 = hx2 - ox, hy2 - oy
+    alto_roi, ancho_roi = roi.shape[:2]
+    if cx2 <= cx1 or cy2 <= cy1:
+        return 0
+    cx1, cy1 = max(0.0, cx1), max(0.0, cy1)
+    cx2, cy2 = min(float(ancho_roi), cx2), min(float(alto_roi), cy2)
+    if cx2 <= cx1 or cy2 <= cy1:
+        return 0
+    ancho_cabeza, alto_cabeza = cx2 - cx1, cy2 - cy1
+    # La caja de cabeza puede llevar el casco puesto: la cara empieza por
+    # debajo del borde, así que la zona se ancla en la mitad de la caja y
+    # baja hasta la nariz.
+    caja = (0.0, 0.0, ancho_cabeza, alto_cabeza)
+    bx, by, bw, bh = banda_dentro(
+        caja, ancho_cabeza * ZONA_REL_CENTRO_X,
+        alto_cabeza * CABEZA_ZONA_REL_Y,
+        ancho_cabeza * CABEZA_ZONA_REL_ANCHO,
+        alto_cabeza * CABEZA_ZONA_REL_ALTO)
+    return difuminar_zona(roi, (bx + cx1, by + cy1, bw, bh))
+
+
+def difuminar_cabeza_persona(roi) -> int:
+    """Zona de ojos y nariz estimada desde la caja de la persona.
+
+    Es el último respaldo: si YuNet no ve el rostro y tampoco hay caja de
+    cabeza (persona de espaldas, capucha, sombra profunda), la cabeza ocupa la
+    parte alta del cuerpo y la cara cae cerca del borde superior. Mejor una
+    zona aproximada que dejar el rostro sin anonimizar.
+    """
+    alto_roi, ancho_roi = roi.shape[:2]
+    if alto_roi <= 0 or ancho_roi <= 0:
+        return 0
+    zona = banda_dentro(
+        (0, 0, ancho_roi, alto_roi),
+        ancho_roi * ZONA_REL_CENTRO_X, alto_roi * PERSONA_ZONA_REL_Y,
+        ancho_roi * PERSONA_ZONA_REL_ANCHO, alto_roi * PERSONA_ZONA_REL_ALTO)
+    return difuminar_zona(roi, zona)
+
+
+def difumar_rostros(detector, frame, persona, cabezas) -> int:
+    """Anonimiza el rostro de una persona. YuNet cubre frontal y perfil.
+
+    Devuelve el numero de rostros difuminados.
+    """
+    x1, y1, x2, y2 = persona
+    alto_f, ancho_f = frame.shape[:2]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(ancho_f, x2), min(alto_f, y2)
+    if x2 <= x1 or y2 <= y1:
+        return 0
+    roi = frame[y1:y2, x1:x2]
+    n = difumar_roi(detector, roi)
+    if n:
+        return n
+    # Sin rostro detectado: la caja de cabeza que vio YOLO, y si tampoco hay,
+    # la proporción de la cabeza sobre la caja de la persona.
+    n = difuminar_cabeza(roi, cabezas, (x1, y1))
+    if n:
+        return n
+    return difuminar_cabeza_persona(roi)
 
 
 def clave_violacion(estado):
@@ -244,6 +539,32 @@ def clave_violacion(estado):
     incidente nuevo cada vez que alterna entre 'falta_chaleco' y 'sin_chaleco'.
     """
     return tuple(sorted({TIPOS_INFRACCION[i] for i in estado if i in TIPOS_INFRACCION}))
+
+
+def centro_caja(caja):
+    """Centro de una caja dada como esquinas, o None si no hay caja.
+
+    Compartido con `monitoreo_v1.py`, que hace el mismo seguimiento de la
+    persona entre frames.
+    """
+    if caja is None:
+        return None
+    x1, y1, x2, y2 = caja
+    return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+
+
+def alcance_reaparicion(caja):
+    """Distancia maxima a la que se admite que reaparezca la misma persona.
+
+    Se mide en cajas de la propia persona: un par de cuerpos es margen
+    suficiente para que la deteccion se corte mientras la persona sigue en el
+    sitio, y poco como para enganchar a alguien que entra por otro lado del
+    encuadre. Con caja desconocida no se restringe.
+    """
+    if caja is None:
+        return float("inf")
+    _, _, ancho, alto = dimensiones(caja)
+    return max(ancho, alto, 1.0) * GRACIA_CIERRE_CAJAS
 
 
 def texto(frame, cadena, org, escala, color, grosor=2):
@@ -257,7 +578,7 @@ class MonitorEPP:
     """Detecta infracciones de EPP, difumina rostros y registra incidentes."""
 
     def __init__(self, ruta_modelo=None, ruta_yunet=None, carpeta_evidencia="incidents",
-                 al_registrar=None):
+                 al_registrar=None, ping_segundos=PING_SEGUNDOS):
         ruta_modelo = ruta_modelo or RUTA_MODELO_EPP
         if not Path(ruta_modelo).is_file():
             raise IOError(f"No se encontró el modelo YOLO: {ruta_modelo}")
@@ -265,11 +586,23 @@ class MonitorEPP:
         self.detector = cargar_yunet(ruta_yunet or RUTA_YUNET)
         self.carpeta_evidencia = Path(carpeta_evidencia)
         self.al_registrar = al_registrar
+        # Intervalo del ping de mantenimiento. 0 lo desactiva.
+        self.ping_segundos = max(0, int(ping_segundos))
         self.historial: dict[int, deque] = {}
         self.ultimo_estado: dict[int, frozenset] = {}
         self.estado_confirmado: dict[int, frozenset] = {}
         self.violacion_confirmada: dict[int, tuple] = {}
         self.ultimo_visto: dict[int, int] = {}
+        # Ultima caja vista de cada persona: sirve para reconocer que la misma
+        # persona reaparece tras un parpadeo del detector.
+        self.caja_vista: dict[int, tuple] = {}
+        # Episodio en curso por persona: inicio, ultimo ping y el incidente
+        # ya registrado que se reenvia en cada ping.
+        self.episodio: dict[int, dict] = {}
+        # Episodios en espera de reaparicion: la persona se perdio de vista
+        # (el detector de 'Person' parpadeo) pero no por eso se cierra el
+        # registro. Se retoman si vuelve, o se cierran al vencer la gracia.
+        self.en_espera: list[dict] = []
         self.n_frames = 0
         self.t_prev = time.time()
         self.fps = 0.0
@@ -316,75 +649,145 @@ class MonitorEPP:
             partes.append(e)
         return partes
 
-    def _registrar_cambio(self, pid, estado, confianza, nuevos):
-        """Anota un estado confirmado solo si cambia la infraccion semantica."""
-        clave = clave_violacion(estado)
-        if self.violacion_confirmada.get(pid) == clave:
-            return
-        self.violacion_confirmada[pid] = clave
+    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None):
+        """Gestiona el ciclo de vida del aviso de una persona.
+
+        Decide que hacer con el estado confirmado de la persona, aplicando la
+        politica vigente (`confirmar_infracciones`):
+
+        - Sin infraccion notificable: si habia un episodio en curso, se cierra
+          (FIN) para que conste cuando termino.
+        - Con infraccion y sin episodio: se abre (INICIO) y se notifica de
+          inmediato, sin esperar el ping de nadie.
+        - Con infraccion y episodio en curso: si vencio el intervalo de ping,
+          se reenvia el aviso ya registrado (PING) para confirmar que la
+          situacion persiste.
+
+        'caja' es la caja de la persona en el frame actual: permite reconocer
+        que es la misma persona que se perdio de vista y retomar su episodio.
+
+        Devuelve el tipo de evento generado: "inicio", "ping", "fin" o None.
+        """
+        notificables = confirmar_infracciones(estado)
+        clave = clave_violacion(notificables)
+        ahora = time.monotonic()
+
+        if not clave:
+            # Cumplimiento (o estado que la politica no notifica): el episodio
+            # en curso se cierra despues, en _registrar, para conservar el
+            # incidente ya registrado y poder reenviarlo.
+            self.violacion_confirmada[pid] = clave
+            self.estado_confirmado[pid] = estado
+            if pid in self.episodio:
+                nuevos[pid] = (notificables, confianza, "fin")
+                return "fin"
+            return None
+
+        desconocida = self.violacion_confirmada.get(pid) is None
+        if self.violacion_confirmada.get(pid) != clave:
+            # Cambio semantico de la infraccion, o primera vez que se ve a
+            # esta persona. El episodio anterior, si lo hay, se retira aqui.
+            self.episodio.pop(pid, None)
+            self.violacion_confirmada[pid] = clave
+            self.estado_confirmado[pid] = estado
+            if desconocida and self._retomar_episodio(pid, clave, caja):
+                # No es nadie nuevo: es a quien el detector dejo de ver y que
+                # ahora vuelve, a veces con otro id de ByteTrack. Sigue siendo
+                # el mismo registro, asi que no se abre un INICIO; pasa
+                # directamente al control del ping.
+                return self._controlar_ping(pid, nuevos, confianza, ahora)
+            self.episodio[pid] = {"inicio": ahora, "ultimo_ping": ahora,
+                                  "incidente": None}
+            nuevos[pid] = (notificables, confianza, "inicio")
+            return "inicio"
+
+        # Misma infraccion sostenida: toca ping si ya vencio el intervalo.
         self.estado_confirmado[pid] = estado
-        nuevos[pid] = (estado, confianza)
+        episodio = self.episodio.get(pid)
+        if episodio is None:
+            # Se confirmo la infraccion sin haber pasado por un inicio (por
+            # ejemplo, tras descartar a la persona por quedar fuera de cuadro).
+            self.episodio[pid] = {"inicio": ahora, "ultimo_ping": ahora,
+                                  "incidente": None}
+            nuevos[pid] = (notificables, confianza, "inicio")
+            return "inicio"
+
+        return self._controlar_ping(pid, nuevos, confianza, ahora)
+
+    def _retomar_episodio(self, pid, clave, caja=None):
+        """Retoma un episodio en espera que tenga la misma infraccion.
+
+        Cuando la deteccion de 'Person' parpadea (gafas, sombra, perfil), la
+        persona se pierde de vista y ByteTrack le asigna otro id al volver.
+        Sin esto, cada parpadeo cerraria el registro con un FIN y abria otro
+        con el mismo contenido: una persona que nunca salio de la camara
+        quedaria partida en varias infracciones seguidas.
+
+        Solo se retoma si ademas reaparece mas o menos donde se fue, para que
+        una persona distinta que entra por otro lado del encuadre no se
+        apropie del episodio de la anterior. Devuelve True si lo retomo.
+        """
+        if not clave:
+            return False
+        centro = centro_caja(caja)
+        for i in range(len(self.en_espera) - 1, -1, -1):
+            item = self.en_espera[i]
+            if item["clave"] != clave:
+                continue
+            if centro is not None and item["centro"] is not None:
+                if math.hypot(centro[0] - item["centro"][0],
+                              centro[1] - item["centro"][1]) > item["radio"]:
+                    continue
+            self.en_espera.pop(i)
+            self.episodio[pid] = item["episodio"]
+            return True
+        return False
+
+    def _controlar_ping(self, pid, nuevos, confianza, ahora):
+        """Emite el ping si ya vencio el intervalo; si no, no notifica nada."""
+        episodio = self.episodio.get(pid)
+        if episodio is None or self.ping_segundos <= 0:
+            return None
+        if ahora - episodio["ultimo_ping"] < self.ping_segundos:
+            return None
+
+        episodio["ultimo_ping"] = ahora
+        notificables = confirmar_infracciones(self.estado_confirmado.get(pid, frozenset()))
+        nuevos[pid] = (notificables, confianza, "ping")
+        return "ping"
+
+    def _cerrar_episodio(self, episodio):
+        """Cierra un episodio ya retirado del mapa y devuelve el cierre.
+
+        Tanto el episodio en curso como uno que aguarda en espera se cierran
+        igual: se reenvia el incidente ya registrado con el evento 'fin'.
+        Devuelve None si nunca llego a registrarse el inicio.
+        """
+        if episodio is None or episodio.get("incidente") is None:
+            return None
+        incidente = dict(episodio["incidente"])
+        incidente["event"] = "fin"
+        if self.al_registrar:
+            self.al_registrar(incidente)
+        return incidente
 
     # ---------- difuminado ----------
     @staticmethod
     def _difumar_roi(detector, roi):
-        """Difumina la banda de ojos de cada rostro dentro del ROI.
+        """Difumina la zona de ojos y nariz de cada rostro dentro del ROI.
 
         Devuelve el número de rostros difuminados.
         """
-        if roi.size == 0:
-            return 0
-        n = 0
-        for cara, ojos in detectar_rostros(detector, roi):
-            fx, fy, fw, fh = cara
-            if fw < 8 or fh < 8:
-                continue
-            cx = (ojos[0] + ojos[2]) / 2.0
-            cy = (ojos[1] + ojos[3]) / 2.0
-            if not (fx <= cx <= fx + fw and fy <= cy <= fy + fh):
-                # Landmarks fuera de la caja: se cae a la posición anatómica.
-                cx, cy = fx + fw / 2.0, fy + fh * OJO_REL_Y_SIN_LANDMARKS
-            bx, by, bw, bh = banda_dentro(cara, cx, cy,
-                                          fw * OJO_REL_ANCHO, fh * OJO_REL_ALTO)
-            region = roi[by:by + bh, bx:bx + bw]
-            if region.size == 0:
-                continue
-            k = int(min(max(bw, bh) * 2, 99)) | 1
-            roi[by:by + bh, bx:bx + bw] = cv2.GaussianBlur(region, (k, k), 0)
-            n += 1
-        return n
+        return difumar_roi(detector, roi)
 
     def difumar_rostros(self, frame, persona, cabezas):
         """Anonimiza el rostro de una persona. YuNet cubre frontal y perfil."""
-        x1, y1, x2, y2 = persona
-        alto_f, ancho_f = frame.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(ancho_f, x2), min(alto_f, y2)
-        if x2 <= x1 or y2 <= y1:
-            return 0
-        roi = frame[y1:y2, x1:x2]
-        n = self._difumar_roi(self.detector, roi)
-        if n:
-            return n
-        # Sin rostro detectado: banda conservadora sobre la caja de cabeza.
-        return self._difumar_cabeza(roi, cabezas)
+        return difumar_rostros(self.detector, frame, persona, cabezas)
 
     @staticmethod
-    def _difumar_cabeza(roi, cabezas):
-        if not cabezas:
-            return 0
-        mejor = max(cabezas, key=lambda c: c["caja"][2] * c["caja"][3])
-        hx, hy, hw, hh = mejor["caja"]
-        alto_roi, ancho_roi = roi.shape[:2]
-        bx, by, bw, bh = banda_dentro(
-            (0, 0, ancho_roi, alto_roi), hx + hw / 2.0, hy + hh / 2.0,
-            hw * CABECA_REL_ANCHO, hh * CABECA_REL_ALTO)
-        region = roi[by:by + bh, bx:bx + bw]
-        if region.size == 0:
-            return 0
-        k = int(min(max(bw, bh) * 2, 99)) | 1
-        roi[by:by + bh, bx:bx + bw] = cv2.GaussianBlur(region, (k, k), 0)
-        return 1
+    def _difuminar_cabeza(roi, cabezas, origen):
+        """Banda de ojos sobre la caja de cabeza, cuando YuNet no detecta."""
+        return difuminar_cabeza(roi, cabezas, origen)
 
     # ---------- evidencia ----------
     def guardar_evidencia(self, frame):
@@ -401,32 +804,81 @@ class MonitorEPP:
         cv2.imwrite(str(carpeta / nombre), frame)
         return (relativa / nombre).as_posix(), ahora
 
-    def _registrar(self, frame, pid, estado, confianza):
-        """Crea el incidente y lo entrega al callback si hay uno."""
-        evidencia, momento = self.guardar_evidencia(frame)
+    def _registrar(self, frame, pid, estado, confianza, evento="inicio"):
+        """Crea el incidente y lo entrega al callback si hay uno.
+
+        Para el evento "inicio" se guarda la evidencia del frame y se crea un
+        incidente nuevo. Para "ping" y "fin" se reenvia el incidente ya
+        registrado, con los mismos datos: el ping confirma que la situacion
+        persiste y el fin cierra el registro, pero ninguno de los dos crea un
+        registro nuevo.
+        """
         tipos = sorted({TIPOS_INFRACCION[i] for i in estado if i in TIPOS_INFRACCION})
-        if not tipos:
-            raise ValueError("No se puede registrar un incidente sin infraccion")
-        incidente = {
-            "camera_id": "camara-01",
-            "zone_id": "zona-norte",
-            "detected_at": momento.isoformat().replace("+00:00", "Z"),
-            "violation_type": tipos[0],
-            "violation_types": tipos,
-            "confidence": round(min(1.0, max(0.0, confianza)), 4),
-            "evidence_path": evidencia,
-            "person_track_id": int(pid),
-            "beacon_alert": {"status": "skipped_offline", "latency_ms": None},
-        }
+        episodio = self.episodio.get(pid)
+
+        if evento == "inicio":
+            evidencia, momento = self.guardar_evidencia(frame)
+            if not tipos:
+                raise ValueError("No se puede registrar un incidente sin infraccion")
+            incidente = {
+                "camera_id": "camara-01",
+                "zone_id": "zona-norte",
+                "detected_at": momento.isoformat().replace("+00:00", "Z"),
+                "violation_type": tipos[0],
+                "violation_types": tipos,
+                "confidence": round(min(1.0, max(0.0, confianza)), 4),
+                "evidence_path": evidencia,
+                "person_track_id": int(pid),
+                "beacon_alert": {"status": "skipped_offline", "latency_ms": None},
+                "event": "inicio",
+                # Identifica al registro para que la API pueda actualizarlo con
+                # cada ping en vez de crear un incidente nuevo.
+                "episode_id": str(uuid.uuid4()),
+                "occurred_at": momento.isoformat().replace("+00:00", "Z"),
+                "ping_count": 0,
+            }
+            if episodio is not None:
+                episodio["incidente"] = incidente
+                episodio["inicio"] = time.monotonic()
+            if self.al_registrar:
+                self.al_registrar(incidente)
+            return incidente
+
+        # Ping o fin: se reenvia el incidente ya registrado, con los datos
+        # originales, para mantener el aviso vivo sin duplicar registros.
+        if episodio is None or episodio.get("incidente") is None:
+            return None
+        incidente = dict(episodio["incidente"])
+        incidente["event"] = evento
+        # Marca de cuando ocurrio este ping o este cierre; el episode_id
+        # permite que la API actualice el mismo registro en vez de crear otro.
+        incidente["occurred_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        if evento == "ping":
+            episodio["pings"] = episodio.get("pings", 0) + 1
+        incidente["ping_count"] = episodio.get("pings", 0)
         if self.al_registrar:
             self.al_registrar(incidente)
+        if evento == "fin":
+            # El registro se cierra: ya no hay episodio en curso para esta persona.
+            self.episodio.pop(pid, None)
         return incidente
 
-    # ---------- ciclo principal ----------
-    def procesar(self, frame):
-        """Analiza un frame. Devuelve la lista de incidentes nuevos."""
-        self.n_frames += 1
-        personas, epps, hay_seguimiento = self._detectar(frame)
+    def _depurar_invisibles(self):
+        """Aparta los episodios de quienes ya no se ven, y cierra los vencidos.
+
+        Devuelve los cierres (FIN) generados en este frame.
+
+        El detector de 'Person' parpadea: gafas, sombra o un perfil raro hacen
+        que desaparezca del frame aunque la persona no se haya movido, y al
+        volver ByteTrack le reparte otro id. Si se cerrara el episodio en ese
+        hueco, alguien que nunca salio de la camara acabaria partida en varias
+        infracciones seguidas (FIN y, segundos despues, un INICIO con otro
+        numero). En vez de cerrar, el episodio pasa a espera: se retoma si la
+        persona reaparece con la misma falta y cerca de donde se fue, y solo
+        se cierra de verdad cuando la espera supera GRACIA_CIERRE_SEGUNDOS.
+        """
+        cierres = []
+        instante = time.monotonic()
 
         for pid in [p for p, v in self.ultimo_visto.items()
                     if self.n_frames - v > FRAME_PARA_DESCARTAR]:
@@ -434,12 +886,46 @@ class MonitorEPP:
             self.historial.pop(pid, None)
             self.ultimo_estado.pop(pid, None)
             self.estado_confirmado.pop(pid, None)
-            self.violacion_confirmada.pop(pid, None)
+            clave = self.violacion_confirmada.pop(pid, None)
+            caja = self.caja_vista.pop(pid, None)
+            episodio = self.episodio.pop(pid, None)
+            if episodio is not None and episodio.get("incidente") is not None:
+                self.en_espera.append({"pid": pid,
+                                       "clave": clave,
+                                       "centro": centro_caja(caja),
+                                       "radio": alcance_reaparicion(caja),
+                                       "episodio": episodio,
+                                       "perdido": instante})
 
-        incidentes, nuevos = [], {}
+        # Ya no puede afirmarse que sigan sin EPP: se cierran.
+        vencidos = [e for e in self.en_espera
+                    if instante - e["perdido"] > GRACIA_CIERRE_SEGUNDOS]
+        if vencidos:
+            self.en_espera = [e for e in self.en_espera if e not in vencidos]
+            for item in vencidos:
+                cierre = self._cerrar_episodio(item["episodio"])
+                if cierre is not None:
+                    cierres.append(cierre)
+                    self._consola(item["pid"], (), "fin")
+
+        return cierres
+
+    # ---------- ciclo principal ----------
+    def procesar(self, frame):
+        """Analiza un frame. Devuelve la lista de incidentes nuevos."""
+        self.n_frames += 1
+        personas, epps, hay_seguimiento = self._detectar(frame)
+
+        # Se ejecuta antes de mirar a las personas del frame: los episodios de
+        # quienes dejaron de verse se apartan (o se cierran si se agoto la
+        # gracia) en el mismo frame en que se pierden de vista.
+        incidentes = self._depurar_invisibles()
+
+        nuevos = {}
         for p in personas:
             pid = p["id"]
             self.ultimo_visto[pid] = self.n_frames
+            self.caja_vista[pid] = p["caja"]
             partes = self._partes_de(epps, p)
             estado = evaluar_persona(partes)
             # Si no hay EPP detectado, la confianza de la persona es la unica
@@ -450,17 +936,24 @@ class MonitorEPP:
                 ventana = self.historial.setdefault(pid, deque(maxlen=VENTANA_SUAVIZADO))
                 ventana.append(estado)
                 if sum(1 for s in ventana if s == estado) >= MIN_FRAMES_PARA_ALERTAR:
-                    self._registrar_cambio(pid, estado, confianza, nuevos)
+                    self._registrar_cambio(pid, estado, confianza, nuevos,
+                                           p["caja"])
                 self.ultimo_estado[pid] = estado
             else:
                 # Sin IDs no hay identidad estable entre frames, pero el estado
                 # se sigue notificando una sola vez por cambio.
-                self._registrar_cambio(pid, estado, confianza, nuevos)
+                self._registrar_cambio(pid, estado, confianza, nuevos, p["caja"])
 
         # El difuminado va antes de dibujar, para que la evidencia salga limpia.
         for p in personas:
             cabezas = [e for e in epps if e["nombre"] in CLASES_CABEZA]
             self.difumar_rostros(frame, p["caja"], cabezas)
+        if not personas and epps:
+            # YOLO no acerto la clase 'Person' (gafas, sombra, perfil) y la
+            # persona sigue en el encuadre. Sin su caja no hay donde recortar,
+            # asi que se difumina el frame entero: el anonimato no depende de
+            # que el detector acierte.
+            difumar_roi(self.detector, frame)
 
         for p in personas:
             pid = p["id"]
@@ -491,18 +984,29 @@ class MonitorEPP:
 
         # La evidencia se genera con las marcas ya dibujadas.
         # Solo se notifica lo que la politica vigente marque como infraccion.
-        for pid, (estado, confianza) in nuevos.items():
+        for pid, (estado, confianza, evento) in nuevos.items():
             notificables = confirmar_infracciones(estado)
-            if notificables:
-                incidentes.append(self._registrar(frame, pid, notificables, confianza))
-                self._consola(pid, notificables)
+            if notificables or evento == "fin":
+                incidente = self._registrar(frame, pid, notificables,
+                                            confianza, evento)
+                if incidente is not None:
+                    incidentes.append(incidente)
+                self._consola(pid, notificables, evento)
+
         return incidentes
 
     @staticmethod
-    def _consola(pid, estado):
-        if estado:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] "
-                  f"Persona {pid}: INFRACCIONES -> {', '.join(sorted(estado))}")
-        else:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] "
-                  f"Persona {pid}: Cumplimiento completo (Casco y Chaleco)")
+    def _consola(pid, estado, evento="inicio"):
+        """Escribe en consola el momento del ciclo de vida del aviso.
+
+        INICIO y PING avisan sin EPP, FIN cierra el registro; el ping repite
+        los datos ya registrados para que conste que la situacion no cambio.
+        """
+        hora = datetime.now().strftime("%H:%M:%S")
+        if evento == "fin":
+            print(f"[{hora}] Persona {pid}: FIN del registro (ya no esta sin EPP)")
+            return
+        if not estado:
+            return
+        marcador = "INFRACCIONES" if evento == "inicio" else "SIGUE SIN CAMBIOS"
+        print(f"[{hora}] Persona {pid}: {marcador} -> {', '.join(sorted(estado))}")
