@@ -11,8 +11,12 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 
-from . import almacen
+from . import almacen, config
 
+# Carga el .env del proyecto si existe. Las variables ya presentes en el
+# entorno tienen prioridad, de modo que se puede sobreescribir sin editar el
+# archivo. Ver `config.cargar_env`.
+config.cargar_env()
 
 app = FastAPI(title="CascoVision API")
 bearer = HTTPBearer(auto_error=False)
@@ -128,6 +132,25 @@ def health_check() -> dict[str, str]:
     """Devuelve el estado básico de disponibilidad de la API."""
 
     return {"status": "ok", "service": "cascovision-api"}
+
+
+@app.get("/config")
+def config_check() -> dict:
+    """Informa de la configuración efectiva, sin exponer valores secretos.
+
+    Sirve para verificar desde el navegador que la API leyó el `.env` y que
+    el token está configurado, sin revelar su valor.
+    """
+
+    estado = config.estado_configuracion()
+    faltantes = config.faltantes_obligatorias()
+    return {
+        "status": "ok" if not faltantes else "incompleta",
+        "almacenamiento": estado["almacenamiento"],
+        "token_configurado": estado["token_configurado"],
+        "archivo_env": estado["archivo_env"],
+        "variables_obligatorias_faltantes": faltantes,
+    }
 
 
 @app.post("/incidents", status_code=201, response_model=IncidentCreated)

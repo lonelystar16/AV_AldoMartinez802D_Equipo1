@@ -8,7 +8,7 @@ La API exige el token del agente Edge (variable EDGE_API_TOKEN): debe tener el
 mismo valor en la terminal de la API y en la de este agente.
 
     python -m uvicorn app.main:app --app-dir src/api --reload
-    python "Yolo/testing y modelamiento/monitoreo_api.py"
+    python "Yolo/modelamiento/monitoreo_api.py"
 """
 
 import argparse

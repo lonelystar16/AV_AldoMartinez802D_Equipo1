@@ -142,5 +142,5 @@ volumes: {pgdata: {}, evidencia: {}, edge-datos: {}, certificados: {}}
 ## 9. Puntos a confirmar
 
 - Fijar versiones exactas de las imágenes (no `latest`) antes de la entrega.
-- Dónde viven los Dockerfiles: hoy el código del agente está en `Yolo/testing y modelamiento/` y debe pasar a `src/edge/` (brecha B-06).
+- Dónde viven los Dockerfiles: hoy el código del agente está en `Yolo/modelamiento/` y debe pasar a `src/edge/` (brecha B-06).
 - Cómo se genera el certificado HTTPS para la demo (autofirmado con `openssl`).

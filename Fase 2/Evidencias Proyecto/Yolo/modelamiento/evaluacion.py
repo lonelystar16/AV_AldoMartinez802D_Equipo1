@@ -23,12 +23,12 @@ comparacion de comportamiento, no de ids de clase.
 Uso:
 
     # Detector de 5 clases (el nuevo)
-    uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/evaluacion.py" \
+    uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/evaluacion.py" \
         --model "Fase 2/Evidencias Proyecto/models/cascovision_yolo26s.pt" \
         --perfil 5clases
 
     # Detector de 11 clases (el anterior, linea base)
-    uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/evaluacion.py" \
+    uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/evaluacion.py" \
         --model "Fase 2/Evidencias Proyecto/models/cascovision_yolo26s.pt" \
         --perfil 11clases
 """

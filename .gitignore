@@ -28,8 +28,9 @@ datasets/
 !Fase 2/Evidencias Proyecto/models/*.onnx
 
 # Dataset y corridas de entrenamiento de YOLO: se descargan o se regeneran.
-# Se conserva solo train-9 (métricas y gráficos de la corrida del modelo
-# entregado); sus pesos quedan fuera por la regla *.pt.
+# De la corrida entregada (train-10) se versionan solo las métricas y los
+# gráficos; los pesos quedan fuera por la regla *.pt, porque el modelo vive
+# en models/.
 #
 # OJO: en .gitignore la barra invertida es carácter de escape, no separador.
 # Estas rutas deben llevar "/" para que la regla aplique.
@@ -37,11 +38,14 @@ Fase 2/Evidencias Proyecto/Yolo/dataset/train/
 Fase 2/Evidencias Proyecto/Yolo/dataset/valid/
 Fase 2/Evidencias Proyecto/Yolo/dataset/test/
 Fase 2/Evidencias Proyecto/Yolo/runs/detect/*
-!Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-9/
+!Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-10/
+Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-10/weights/
 
 # Ultralytics crea las carpetas de validacion en el directorio de trabajo
 # desde el que se lanza. Si se evalua desde la raiz, aparece aqui.
-runs/
+# La barra inicial lo ancla a la raiz: sin ella, 'runs/' matchearia tambien
+# el directorio Yolo/runs/ y la excepcion de arriba no aplicaria.
+/runs/
 
 # Salidas de ejecución local: evidencia, incidentes y cola del agente Edge
 Fase 2/Evidencias Proyecto/incidents/

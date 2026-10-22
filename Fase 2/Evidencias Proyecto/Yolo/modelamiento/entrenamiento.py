@@ -8,10 +8,10 @@ registrada en los `args.yaml` que genera Ultralytics.
 Ejemplos:
 
     # Corrida de referencia (5 clases, desde la base COCO)
-    uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/entrenamiento.py"
+    uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py"
 
     # Reanudar o variant
-    uv run python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/entrenamiento.py" \
+    uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py" \
         --name train-11 --epochs 150 --batch 8
 """
 

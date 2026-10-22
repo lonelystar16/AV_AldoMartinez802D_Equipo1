@@ -5,9 +5,6 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 > 🚧 **Estado:** Fase 2, desarrollo. Análisis de requerimientos (SRS v0.3, borrador) en revisión; construcción desde la semana 9.
 
-> **Entorno:** el proyecto usa [uv](https://docs.astral.sh/uv/) como gestor de
-> dependencias. Para instalarlo en Windows: `winget install --id=astral-sh.uv -e`.
-
 ---
 
 ## Descripción
@@ -132,21 +129,26 @@ Con la cámara conectada:
 
 ```bash
 # Monitoreo local, sin API
-uv run python "Yolo/testing y modelamiento/monitoreo_v2.py"
+uv run python "Yolo/modelamiento/monitoreo_v2.py"
 
 # Agente Edge: reporta los incidentes a la API
-uv run python "Yolo/testing y modelamiento/monitoreo_api.py"
+uv run python "Yolo/modelamiento/monitoreo_api.py"
 ```
 
 ## Modelo de detección
 
 El modelo entregado es [`Fase 2/Evidencias Proyecto/models/cascovision_yolo26s.pt`](Fase%202/Evidencias%20Proyecto/models/) (YOLO26s, 19,4 MB), con sus métricas en el README de esa carpeta. El criterio de aceptación es mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85 (RNF-05 del SRS). `models/` es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`. El dataset de entrenamiento (~440 MB) no se versiona; el README del modelo explica cómo obtenerlo.
 
-La corrida `train-9` (11 clases) es la línea base documentada: **no cumple todavía el RNF-05**, con mAP@0,5 = 0,62 y señales de sobreajuste entre entrenamiento y validación. Sobre las tres clases que el sistema usa realmente (`helmet`, `vest`, `Person`) promedia 0,891.
+El detector actual (`train-10`) trabaja con **5 clases** (`helmet`, `no_helmet`, `no_vest`, `Person`, `vest`) sobre un export de Roboflow del conjunto Construction-PPE. La diferencia con el modelo anterior no es solo de esquema: **las infracciones se detectan de forma positiva**, en vez de inferirse por la ausencia de un casco. Eso se traduce en un salto del *recall* de las reglas de negocio:
 
-> 🚧 **En desarrollo: detector de 5 clases (`train-10`).** El dataset actual es un export de Roboflow con un esquema de **5 clases** (`helmet`, `no_helmet`, `no_vest`, `Person`, `vest`) en el que las infracciones se **detectan de forma positiva**, en vez de inferirse por la ausencia de un casco. La corrida está en marcha; sus métricas se publicarán en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
+| Regla | `train-9` (11 clases) | **`train-10` (5 clases)** |
+| --- | --- | --- |
+| ¿lleva casco? | P 1,000 · R 0,643 · E 0,643 | **P 0,986 · R 0,947 · E 0,934** |
+| ¿lleva chaleco? | P 0,951 · R 0,583 · E 0,566 | **P 1,000 · R 0,887 · E 0,887** |
 
-La línea base del modelo anterior, medida sobre el mismo split de prueba, es: ¿lleva casco? con precisión 1,000 y *recall* 0,643; ¿lleva chaleco? con precisión 0,951 y *recall* 0,583. El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
+Con esto **el RNF-05 se cumple en las dos reglas de negocio** (recall ≥ 0,85); ninguna lo cumplía antes. El mAP@0,5 promedio queda en 0,877, por debajo del 0,90 del RNF-05, pero esa cifra no es comparable con la del modelo anterior: el dataset nuevo tiene 5 clases todas del producto, frente a las 11 del anterior (6 irrelevantes que hundían el promedio). El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
+
+La línea base `train-9` (11 clases) queda documentada como referencia histórica: mAP@0,5 = 0,624, con señales de sobreajuste entre entrenamiento y validación.
 
 La misma carpeta incluye `face_detection_yunet_2023mar.onnx` (227 KB), el detector de rostros que usa el agente Edge para difuminar la evidencia.
 
@@ -178,7 +180,7 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 ## Estructura del repositorio
 
 ```
-├── Fase 1/                           Evidencias de la definición del proyecto
+├── Fase 1/                         Evidencias de la definición del proyecto
 ├── Fase 2/
 │   ├── Evidencias Grupales/        D1 SRS · carta Gantt · D2 Diseño · D3 Pruebas · D4 Manual técnico
 │   ├── Evidencias Individuales/    Diarios y autoevaluaciones de cada integrante
@@ -190,18 +192,9 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │       │   ├── dashboard/          Dashboard web (React)
 │       │   └── firmware/           Firmware de la baliza zonal
 │       ├── Yolo/                   Entrenamiento, motor de detección y agente Edge (provisional)
-│       │   ├── dataset/            Dataset de 5 clases (no se versiona)
-│       │   ├── experiments/        Scripts de experimentación (obsoletos, no son pipeline)
-│       │   ├── models/             Checkpoints y detector de rostros YuNet
-│       │   └── runs/detect/        Corridas de entrenamiento
-│       ├── models/                 Modelo YOLO26 entregado y métricas
+│       ├── models/                 Modelo YOLO26 entrenado, detector de rostros YuNet y métricas
 │       ├── db/migrations/          Esquema SQL de PostgreSQL
 │       ├── tests/                  Pruebas automatizadas
-│       └── docs/                   Documentación de la API y del modelo
-│           ├── API.md
-│           ├── MODELO.md           Mapeo de clases y protocolo de evaluación
-│           └── diagramas/
-├── pyproject.toml                   Dependencias (uv) y configuración de pytest
-├── uv.lock                          Resolución exacta de dependencias
+│       └── docs/diagramas/         Diagramas UML y de arquitectura
 └── Fase 3/                         Presentación final
 ```
