@@ -534,16 +534,19 @@ def difumar_rostros(detector, frame, persona, cabezas) -> int:
     x2, y2 = min(ancho_f, x2), min(alto_f, y2)
     if x2 <= x1 or y2 <= y1:
         return 0
-    roi = frame[y1:y2, x1:x2]
-    n = difumar_roi(detector, roi)
+    # La caja de 'Person' a veces empieza en los hombros y deja la cara fuera:
+    # el rostro y la caja de cabeza se buscan también en un margen sobre ella.
+    ya = max(0, y1 - (y2 - y1) // 3)
+    ampliado = frame[ya:y2, x1:x2]
+    n = difumar_roi(detector, ampliado)
     if n:
         return n
     # Sin rostro detectado: la caja de cabeza que vio YOLO, y si tampoco hay,
     # la proporción de la cabeza sobre la caja de la persona.
-    n = difuminar_cabeza(roi, cabezas, (x1, y1))
+    n = difuminar_cabeza(ampliado, cabezas, (x1, ya))
     if n:
         return n
-    return difuminar_cabeza_persona(roi)
+    return difuminar_cabeza_persona(frame[y1:y2, x1:x2])
 
 
 def clave_violacion(estado):
