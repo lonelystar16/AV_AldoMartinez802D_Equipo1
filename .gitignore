@@ -51,6 +51,7 @@ Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-10/weights/
 Fase 2/Evidencias Proyecto/incidents/
 Fase 2/Evidencias Proyecto/db/incidents.json
 Fase 2/Evidencias Proyecto/db/cola_incidentes.jsonl
+Fase 2/Evidencias Proyecto/edge-datos/
 *.tmp
 
 # Cache de etiquetas que genera Ultralytics al escanear el dataset

@@ -128,14 +128,15 @@ class ReporteAPI:
         self.pendientes.clear()
         while pendientes:
             incidente = pendientes.popleft()
-            if self.enviar(incidente):
-                enviados += 1
-            else:
-                pendientes.appendleft(incidente)
-                break
-        if not pendientes:
-            if self.archivo_cola.is_file():
-                self.archivo_cola.unlink()
+            if not self.enviar(incidente):
+                # enviar() ya volvió a encolar este; se devuelven los que faltaban,
+                # que antes se perdían al reescribir la cola.
+                for resto in pendientes:
+                    self._encolar(resto)
+                return enviados
+            enviados += 1
+        if self.archivo_cola.is_file():
+            self.archivo_cola.unlink()
         return enviados
 
 
