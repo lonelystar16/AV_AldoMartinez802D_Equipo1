@@ -3,8 +3,8 @@
 ## 1. Criterios del modelo
 
 - **PostgreSQL** como única base de datos (AD-10 del capítulo de arquitectura).
-- Se **conserva la tabla `incidents`** de las migraciones 001 y 002 tal como está, porque la API y sus pruebas ya la usan. Las tablas nuevas se agregan en una migración 003 (tarea 4.8).
-- Las cámaras, zonas y balizas usan **identificadores de texto legibles** (`camara-02`, `zona-norte`, `baliza-02`), los mismos que el agente Edge ya envía en `camera_id` y `zone_id`. Así la migración 003 puede agregar las claves foráneas sin cambiar la API.
+- Se **conserva la tabla `incidents`** de las migraciones 001 y 002 y su compatibilidad con la API y sus pruebas. La migración 003 incorpora el ciclo de vida de episodios y la 004 agrega las tablas nuevas (tarea 4.8).
+- Las cámaras, zonas y balizas usan **identificadores de texto legibles** (`camara-02`, `zona-norte`, `baliza-02`), los mismos que el agente Edge ya envía en `camera_id` y `zone_id`. Así la migración 005 puede agregar las claves foráneas sin cambiar la API.
 - **No se guardan datos personales de los trabajadores** (Ley N° 19.628): `person_track_id` es un número anónimo de ByteTrack y la evidencia es solo una ruta a una imagen difuminada.
 - Los secretos (contraseñas de cámaras, tokens) **no van en la base de datos**: `rtsp_url` se guarda sin credenciales y estas viven en variables de entorno.
 
@@ -69,8 +69,8 @@
 | Columna | Tipo | Nulo | Restricción o valor por defecto | Descripción |
 | --- | --- | --- | --- | --- |
 | `id` | `uuid` | No | PK | Generado por la API |
-| `camera_id` | `text` | No | FK → `cameras.id` (nueva en la 003) | Cámara de origen |
-| `zone_id` | `text` | No | FK → `zones.id` (nueva en la 003) | Zona de la infracción |
+| `camera_id` | `text` | No | FK → `cameras.id` (nueva en la 005) | Cámara de origen |
+| `zone_id` | `text` | No | FK → `zones.id` (nueva en la 005) | Zona de la infracción |
 | `detected_at` | `timestamptz` | No | Índice descendente | Momento de la detección |
 | `violation_type` | `text` | No | `missing_helmet` o `missing_reflective_vest` | Infracción principal |
 | `violation_types` | `text[]` | Sí | Subconjunto de los dos valores | Todas las infracciones de la persona |
@@ -139,9 +139,12 @@
 
 ## 5. Plan de migración
 
-1. **003_modelo_completo.sql** (tarea 4.8): crea `cameras`, `zones`, `beacons`, `users`, `incident_events`, `notifications` y `shifts`.
-2. **004_claves_incidentes.sql**: agrega a `incidents` las claves foráneas hacia `cameras` y `zones` y los índices de §4. Va separada porque exige que existan las cámaras y zonas de los incidentes ya registrados (datos semilla de la tarea 4.9).
-3. Vistas de reportería por zona, turno y horario (tarea 4.11).
+Secuencia aprobada en **D2 v1.0**:
+
+1. **003 — ciclo de vida de episodios**: amplía `incidents` para incorporar el ciclo de vida de episodios, conservando la compatibilidad con la API.
+2. **004_modelo_completo.sql** (tarea 4.8): crea `cameras`, `zones`, `beacons`, `users`, `incident_events`, `notifications` y `shifts`.
+3. **005_claves_incidentes.sql**: agrega a `incidents` las claves foráneas hacia `cameras` y `zones` y los índices de §4. Va separada porque exige que existan las cámaras y zonas de los incidentes ya registrados (datos semilla de la tarea 4.9).
+4. Vistas de reportería por zona, turno y horario (tarea 4.11).
 
 ## 6. Puntos a confirmar
 

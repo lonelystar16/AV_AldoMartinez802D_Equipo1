@@ -2,8 +2,8 @@
 
 Por defecto corren contra el almacenamiento JSON en un archivo temporal. Con
 CASCOVISION_TEST_POSTGRES=1 y las variables POSTGRES_* corren contra una base
-PostgreSQL con las migraciones de db/migrations/ aplicadas (la tabla se vacía
-antes de cada prueba).
+PostgreSQL de pruebas. Cada caso crea un esquema aislado con las migraciones
+y los catálogos; las tablas existentes de la base no se modifican.
 """
 
 import asyncio
@@ -26,16 +26,13 @@ USAR_POSTGRES = os.getenv("CASCOVISION_TEST_POSTGRES") == "1"
 
 
 @pytest.fixture(autouse=True)
-def entorno(tmp_path, monkeypatch):
+def entorno(tmp_path, monkeypatch, request):
     """Token del agente Edge y almacenamiento aislado por prueba."""
 
     monkeypatch.setenv("EDGE_API_TOKEN", TOKEN)
     if USAR_POSTGRES:
-        import psycopg
-
+        request.getfixturevalue("postgres_db")
         monkeypatch.setenv("CASCOVISION_STORAGE", "postgres")
-        with psycopg.connect(**almacen.postgres_config()) as conexion:
-            conexion.execute("TRUNCATE incidents")
     else:
         monkeypatch.setenv("CASCOVISION_STORAGE", "json")
         monkeypatch.setattr(almacen, "ARCHIVO", tmp_path / "incidents.json")
@@ -114,6 +111,15 @@ def test_incidente_invalido_responde_422() -> None:
 
 def test_violacion_desconocida_responde_422() -> None:
     assert _registrar(violation_type="missing_gloves").status_code == 422
+
+
+@pytest.mark.skipif(not USAR_POSTGRES, reason="Las FK se validan en PostgreSQL")
+@pytest.mark.parametrize("campo", ["camera_id", "zone_id"])
+def test_catalogo_desconocido_responde_422(campo: str) -> None:
+    respuesta = _registrar(**{campo: "no-existe"})
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == "Camera or zone is not configured"
+    assert _peticion("GET", "/incidents").json() == []
 
 
 def test_fecha_sin_zona_horaria_responde_422() -> None:

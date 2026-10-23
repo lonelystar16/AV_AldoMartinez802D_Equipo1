@@ -21,6 +21,10 @@ class AlmacenNoDisponible(Exception):
     """El almacenamiento no está configurado o no responde."""
 
 
+class ReferenciaIncidenteInvalida(Exception):
+    """La cámara o zona del incidente no existe en los catálogos."""
+
+
 class Almacen(Protocol):
     def crear(self, registro: dict[str, Any]) -> None: ...
 
@@ -167,6 +171,8 @@ class AlmacenPostgres:
             raise AlmacenNoDisponible("Incident schema is not initialized") from exc
         except psycopg.errors.UndefinedColumn as exc:
             raise AlmacenNoDisponible("Incident schema is outdated") from exc
+        except psycopg.errors.ForeignKeyViolation as exc:
+            raise ReferenciaIncidenteInvalida("Camera or zone is not configured") from exc
         except psycopg.OperationalError as exc:
             raise AlmacenNoDisponible("PostgreSQL is unavailable") from exc
 
