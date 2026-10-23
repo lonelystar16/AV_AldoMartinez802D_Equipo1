@@ -130,6 +130,73 @@ def test_evidencia_con_ruta_no_relativa_responde_422(ruta: str) -> None:
     assert _registrar(evidence_path=ruta).status_code == 422
 
 
+# ---------- ciclo de vida del aviso ----------
+
+EPISODIO = "0f9a1c2e-1111-4222-8333-444455556666"
+
+
+def _aviso(evento: str, **cambios) -> httpx.Response:
+    """Aviso del agente Edge, marcando el momento del ciclo."""
+
+    return _registrar(event=evento, episode_id=EPISODIO, **cambios)
+
+
+def test_el_ping_actualiza_el_mismo_registro() -> None:
+    """El ping no abre un incidente nuevo: mantiene vivo el ya registrado."""
+    incident_id = _registrar(event="inicio", episode_id=EPISODIO).json()["id"]
+
+    respuesta = _aviso("ping", occurred_at="2026-01-15T14:31:00Z", ping_count=1)
+
+    assert respuesta.json()["id"] == incident_id
+    assert len(_peticion("GET", "/incidents").json()) == 1
+
+
+def test_el_ping_conserva_los_datos_del_inicio() -> None:
+    """El aviso periódico repite los datos ya registrados, no los reemplaza."""
+    _registrar(event="inicio", episode_id=EPISODIO, confidence=0.91)
+
+    _aviso("ping", confidence=0.42, occurred_at="2026-01-15T14:31:00Z", ping_count=1)
+
+    cuerpo = _peticion("GET", "/incidents").json()[0]
+    assert cuerpo["confidence"] == 0.91
+    assert cuerpo["evidence_path"] == INCIDENTE["evidence_path"]
+
+
+def test_el_fin_registra_cuando_termino() -> None:
+    incident_id = _registrar(event="inicio", episode_id=EPISODIO,
+                             detected_at="2026-01-15T14:30:00Z").json()["id"]
+
+    _aviso("fin", occurred_at="2026-01-15T14:33:00Z", ping_count=2)
+
+    cuerpo = _peticion("GET", f"/incidents/{incident_id}").json()
+    assert cuerpo["event"] == "fin"
+    assert cuerpo["ended_at"].startswith("2026-01-15T14:33:00")
+    assert cuerpo["started_at"].startswith("2026-01-15T14:30:00")
+
+
+def test_un_ping_sin_inicio_no_pierde_el_registro() -> None:
+    """Si el inicio quedó en la cola local, el ping crea el registro igual."""
+    respuesta = _aviso("ping", occurred_at="2026-01-15T14:31:00Z", ping_count=1)
+
+    assert respuesta.status_code == 201
+    assert len(_peticion("GET", "/incidents").json()) == 1
+
+
+def test_ping_sin_episode_id_responde_422() -> None:
+    """Un ping sin episodio no podría actualizarse sobre el registro correcto."""
+    assert _registrar(event="ping").status_code == 422
+
+
+def test_cada_persona_tiene_su_propio_registro() -> None:
+    """Aparecer otra persona sin EPP abre un registro aparte, de inmediato."""
+    _registrar(event="inicio", episode_id=EPISODIO)
+    otro = "9a8b7c6d-7777-4888-9999-000011112222"
+
+    _registrar(event="inicio", episode_id=otro, zone_id="zona-sur")
+
+    assert len(_peticion("GET", "/incidents").json()) == 2
+
+
 # ---------- consulta ----------
 
 def test_listar_incidentes_ordenado_por_fecha() -> None:
