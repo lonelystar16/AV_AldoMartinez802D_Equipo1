@@ -116,3 +116,19 @@ de alerta de RNF-02, y a 1 FPS deja la CPU libre más del 85 % del tiempo.
 ONNX no es más rápido que PyTorch en este equipo. Su ventaja es que la imagen
 Docker del agente puede prescindir de PyTorch. El agente usa el `.pt` por
 defecto y acepta el `.onnx` con `--modelo`.
+
+## Estado del RNF-05 al 23-10-2026 (tarea 4.2)
+
+El SRS v1.0 mide el RNF-05 por regla (¿lleva casco?, ¿lleva chaleco?):
+mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85 en cada una.
+
+| Regla | *Recall* | ¿Cumple? | mAP@0,5 de sus clases | ¿Cumple? |
+| --- | --- | --- | --- | --- |
+| Casco (`helmet`, `no_helmet`) | 0,947 | ✔ | 0,836 y 0,844 | ✘ |
+| Chaleco (`vest`, `no_vest`) | 0,887 | ✔ | 0,953 y 0,842 | ✘ en `no_vest` |
+
+El *recall* de las dos reglas cumple. El mAP@0,5 todavía no llega a 0,90 en
+`helmet`, `no_helmet` y `no_vest`. Cerrarlo exige reentrenar con más ejemplos
+de esas clases, y el dataset no está en el repositorio (ver
+`../Yolo/README.md`). La validación final con datos separados es la tarea 5.6.
+
