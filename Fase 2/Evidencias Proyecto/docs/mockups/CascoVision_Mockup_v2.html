@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CascoVision — Mockup de Interfaz</title>
+<style>
+  :root{
+    --dark:#1F2937;
+    --dark2:#111827;
+    --accent:#F59E0B;
+    --accent-d:#B45309;
+    --green:#16A34A;
+    --green-bg:#DCFCE7;
+    --red:#DC2626;
+    --red-bg:#FEE2E2;
+    --gray-l:#F3F4F6;
+    --gray-l2:#E5E7EB;
+    --gray-m:#6B7280;
+    --white:#FFFFFF;
+    --line:#E5E7EB;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    font-family:'Segoe UI', Calibri, Arial, sans-serif;
+    color:var(--dark);
+    background:var(--gray-l);
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    display:flex; min-height:100vh; height:100vh; overflow:hidden;
+  }
+
+  /* ---------------- Sidebar ---------------- */
+  .sidebar{
+    width:230px; flex-shrink:0; background:var(--dark2); color:#D1D5DB;
+    display:flex; flex-direction:column; padding:22px 0 16px;
+  }
+  .sidebar .logo{
+    display:flex; align-items:center; gap:10px;
+    padding:0 22px 20px; margin-bottom:8px; border-bottom:1px solid #2b3444;
+  }
+  .sidebar .logo .mark{
+    width:34px; height:34px; border-radius:9px; background:var(--accent);
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; flex-shrink:0;
+  }
+  .sidebar .logo .name{ font-weight:800; font-size:1.15rem; color:#fff; letter-spacing:.2px;}
+  .sidebar .logo .name span{ color:var(--accent); }
+  .sidebar nav{ display:flex; flex-direction:column; gap:2px; margin-top:8px; flex:1; }
+  .sidebar nav button{
+    all:unset; cursor:pointer; display:flex; align-items:center; gap:12px;
+    padding:12px 22px; font-size:.92rem; color:#9CA3AF; border-left:3px solid transparent;
+    transition:background .15s, color .15s;
+  }
+  .sidebar nav button:hover{ background:#1a2130; color:#fff; }
+  .sidebar nav button.active{
+    background:#1a2130; color:var(--accent); border-left:3px solid var(--accent); font-weight:600;
+  }
+  .sidebar nav button .ic{ font-size:1.05rem; width:20px; text-align:center; }
+  .sidebar .foot{
+    padding:14px 22px 0; border-top:1px solid #2b3444; margin-top:10px;
+    font-size:.72rem; color:#6B7280; line-height:1.5;
+  }
+
+  /* ---------------- Main ---------------- */
+  .main{ flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--white); border-bottom:1px solid var(--line);
+    padding:14px 26px; flex-shrink:0;
+  }
+  .topbar .title{ font-size:1.15rem; font-weight:700; }
+  .topbar .sub{ font-size:.78rem; color:var(--gray-m); margin-top:2px; }
+  .topbar .right{ display:flex; align-items:center; gap:16px; }
+  .select-faena{
+    border:1px solid var(--line); background:var(--gray-l); border-radius:8px;
+    padding:8px 12px; font-size:.85rem; color:var(--dark); font-family:inherit;
+  }
+  .bell{ position:relative; font-size:1.15rem; cursor:pointer; }
+  .bell .dot{
+    position:absolute; top:-4px; right:-6px; background:var(--red); color:#fff;
+    font-size:.62rem; font-weight:700; border-radius:50%; width:16px; height:16px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .avatar{
+    width:34px; height:34px; border-radius:50%; background:var(--dark2); color:var(--accent);
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.8rem;
+  }
+
+  .disclaimer{
+    background:#FEF3C7; color:var(--accent-d); font-size:.76rem; font-weight:600;
+    padding:7px 26px; border-bottom:1px solid #FDE68A; flex-shrink:0;
+    display:flex; align-items:center; gap:8px;
+  }
+
+  .content{ flex:1; overflow-y:auto; padding:24px 26px 40px; }
+  .view{ display:none; animation:fadeIn .25s ease; }
+  .view.active{ display:block; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  h2.view-title{ margin:0 0 4px; font-size:1.3rem; }
+  p.view-desc{ margin:0 0 20px; color:var(--gray-m); font-size:.88rem; }
+
+  /* ---------------- KPI cards ---------------- */
+  .kpi-row{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px; }
+  .kpi{
+    background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px;
+    box-shadow:0 1px 2px rgba(0,0,0,.03);
+  }
+  .kpi .val{ font-size:1.7rem; font-weight:800; color:var(--dark2); }
+  .kpi .val.accent{ color:var(--accent-d); }
+  .kpi .val.ok{ color:var(--green); }
+  .kpi .val.warn{ color:var(--red); }
+  .kpi .lbl{ font-size:.78rem; color:var(--gray-m); margin-top:4px; }
+
+  /* ---------------- Cameras grid ---------------- */
+  .section-head{ display:flex; align-items:center; justify-content:space-between; margin:26px 0 12px; }
+  .section-head h3{ margin:0; font-size:1rem; }
+  .badge-live{
+    display:inline-flex; align-items:center; gap:6px; background:var(--dark2); color:var(--green);
+    font-size:.72rem; font-weight:700; padding:4px 10px; border-radius:20px;
+  }
+  .badge-live .pulse{
+    width:7px; height:7px; border-radius:50%; background:var(--green); animation:blink 1.4s infinite;
+  }
+  @keyframes blink{ 0%,100%{opacity:1;} 50%{opacity:.25;} }
+
+  .cam-grid{ display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; }
+  .cam-card{
+    background:var(--dark2); border-radius:12px; overflow:hidden; position:relative;
+    border:2px solid transparent; transition:border-color .3s;
+  }
+  .cam-card.alert{ border-color:var(--red); }
+  .cam-card .cam-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 12px; background:rgba(17,24,39,.85); position:absolute; top:0; left:0; right:0; z-index:2;
+  }
+  .cam-card .cam-head .zone{ color:#fff; font-size:.78rem; font-weight:700; }
+  .cam-card .cam-head .status{ font-size:.68rem; font-weight:700; padding:2px 8px; border-radius:10px; }
+  .status.ok{ background:var(--green-bg); color:var(--green); }
+  .status.alert{ background:var(--red-bg); color:var(--red); }
+  .cam-card svg{ display:block; width:100%; height:auto; }
+  .cam-card .cam-foot{
+    position:absolute; bottom:0; left:0; right:0; background:rgba(17,24,39,.85);
+    color:#9CA3AF; font-size:.68rem; padding:5px 12px; display:flex; justify-content:space-between;
+  }
+
+  /* ---------------- Table ---------------- */
+  table.incidents{ width:100%; border-collapse:collapse; background:var(--white); border-radius:12px; overflow:hidden; border:1px solid var(--line); }
+  table.incidents th{
+    background:var(--dark2); color:#fff; text-align:left; font-size:.76rem; padding:10px 14px; font-weight:600;
+  }
+  table.incidents td{ padding:11px 14px; font-size:.85rem; border-bottom:1px solid var(--line); vertical-align:middle; }
+  table.incidents tr:last-child td{ border-bottom:none; }
+  table.incidents tr:hover td{ background:#FAFAFA; }
+  .tag{ display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:.72rem; font-weight:700; }
+  .tag.red{ background:var(--red-bg); color:var(--red); }
+  .tag.green{ background:var(--green-bg); color:var(--green); }
+  .tag.amber{ background:#FEF3C7; color:var(--accent-d); }
+  .btn{
+    border:none; cursor:pointer; font-family:inherit; font-weight:600; border-radius:8px; padding:7px 14px; font-size:.78rem;
+  }
+  .btn-primary{ background:var(--accent); color:var(--dark2); }
+  .btn-primary:hover{ background:#e08e08; }
+  .btn-ghost{ background:var(--gray-l); color:var(--dark); border:1px solid var(--line); }
+  .btn-ghost:hover{ background:var(--gray-l2); }
+
+  /* ---------------- Live view ---------------- */
+  .live-wrap{ display:grid; grid-template-columns:2.1fr 1fr; gap:18px; }
+  .live-cam{ background:var(--dark2); border-radius:14px; overflow:hidden; position:relative; }
+  .live-cam .cam-head{ padding:12px 16px; }
+  .live-cam svg{ width:100%; display:block; }
+  .live-side .stat-card{
+    background:var(--white); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px;
+  }
+  .live-side .stat-card h4{ margin:0 0 10px; font-size:.85rem; }
+  .legend-row{ display:flex; align-items:center; gap:8px; font-size:.8rem; margin-bottom:8px; }
+  .legend-dot{ width:10px; height:10px; border-radius:3px; }
+  .feed-log{ font-size:.78rem; color:var(--gray-m); max-height:210px; overflow-y:auto; }
+  .feed-log .entry{ padding:7px 0; border-bottom:1px dashed var(--line); }
+  .feed-log .entry:last-child{ border-bottom:none; }
+  .feed-log .entry b{ color:var(--dark); }
+
+  /* ---------------- Incident detail ---------------- */
+  .detail-wrap{ display:grid; grid-template-columns:1.3fr 1fr; gap:20px; }
+  .evidence-box{ background:var(--dark2); border-radius:14px; overflow:hidden; }
+  .evidence-box svg{ width:100%; display:block; }
+  .evidence-cap{ padding:10px 14px; color:#9CA3AF; font-size:.74rem; }
+  .meta-card{ background:var(--white); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .meta-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px 18px; }
+  .meta-item .k{ font-size:.72rem; color:var(--gray-m); text-transform:uppercase; letter-spacing:.03em; }
+  .meta-item .v{ font-size:.92rem; font-weight:600; margin-top:2px; }
+  .timeline{ list-style:none; margin:0; padding:0; }
+  .timeline li{ display:flex; gap:12px; padding-bottom:16px; position:relative; }
+  .timeline li:not(:last-child)::before{
+    content:''; position:absolute; left:9px; top:22px; bottom:-4px; width:2px; background:var(--line);
+  }
+  .timeline .dot{
+    width:20px; height:20px; border-radius:50%; background:var(--green); color:#fff; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:800; z-index:1;
+  }
+  .timeline .txt b{ display:block; font-size:.85rem; }
+  .timeline .txt span{ font-size:.74rem; color:var(--gray-m); }
+
+  /* ---------------- Reports ---------------- */
+  .rep-wrap{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .rep-card{ background:var(--white); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  .rep-card h4{ margin:0 0 16px; font-size:.9rem; }
+  .bars{ display:flex; align-items:flex-end; gap:16px; height:170px; padding:0 6px; }
+  .bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; }
+  .bar{ width:70%; border-radius:6px 6px 0 0; background:var(--accent); transition:height .6s ease; position:relative; }
+  .bar.alt{ background:var(--dark2); }
+  .bar .num{ position:absolute; top:-20px; left:0; right:0; text-align:center; font-size:.72rem; font-weight:700; color:var(--dark); }
+  .bar-col .lbl{ margin-top:8px; font-size:.72rem; color:var(--gray-m); text-align:center; }
+  .export-row{ display:flex; gap:10px; margin-top:16px; }
+
+  .toast-wrap{ position:fixed; bottom:22px; right:22px; display:flex; flex-direction:column; gap:10px; z-index:50; }
+  .toast{
+    background:var(--dark2); color:#fff; padding:12px 16px; border-radius:10px; font-size:.82rem;
+    box-shadow:0 6px 18px rgba(0,0,0,.25); border-left:4px solid var(--accent);
+    animation:toastIn .25s ease, toastOut .3s ease 3.7s forwards; max-width:300px;
+  }
+  @keyframes toastIn{ from{opacity:0; transform:translateX(20px);} to{opacity:1; transform:none;} }
+  @keyframes toastOut{ to{opacity:0; transform:translateX(20px);} }
+
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:#D1D5DB; border-radius:8px; }
+
+  @media (max-width: 980px){
+    .kpi-row{ grid-template-columns:repeat(2,1fr); }
+    .cam-grid{ grid-template-columns:1fr; }
+    .live-wrap, .detail-wrap, .rep-wrap{ grid-template-columns:1fr; }
+    .sidebar{ width:76px; }
+    .sidebar .logo .name, .sidebar nav button span.lbl, .sidebar .foot{ display:none; }
+    .sidebar .logo{ justify-content:center; padding:0 0 20px; }
+    .sidebar nav button{ justify-content:center; padding:14px 0; }
+  }
+
+  /* ---- v2: configuración, estado de balizas e inicio de sesión ---- */
+  .cfg-wrap{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  table.cfg{ width:100%; border-collapse:collapse; font-size:.8rem; }
+  table.cfg th{ text-align:left; color:var(--gray-m); font-weight:600; padding:8px 6px; border-bottom:1px solid var(--line); }
+  table.cfg td{ padding:9px 6px; border-bottom:1px solid var(--line); }
+  .mono{ font-family:Consolas, monospace; font-size:.76rem; }
+  .zone-canvas{ background:#374151; border-radius:10px; height:210px; position:relative; overflow:hidden; margin-bottom:12px; }
+  .zone-canvas svg{ width:100%; height:100%; }
+  .field{ display:flex; flex-direction:column; gap:5px; margin-bottom:12px; font-size:.8rem; }
+  .field input, .field select, .field textarea{ padding:9px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  .login-overlay{ position:fixed; inset:0; background:linear-gradient(135deg,var(--dark2),#374151); display:none; align-items:center; justify-content:center; z-index:50; }
+  .login-overlay.show{ display:flex; }
+  .login-card{ background:var(--white); border-radius:16px; padding:34px 36px; width:380px; box-shadow:0 20px 50px rgba(0,0,0,.35); }
+  .login-card h2{ margin:10px 0 4px; }
+  .login-card p{ color:var(--gray-m); font-size:.82rem; margin:0 0 20px; }
+  .beacon-dot{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="mark">🦺</div>
+      <div class="name">Casco<span>Vision</span></div>
+    </div>
+    <nav id="nav">
+      <button class="active" data-view="live"><span class="ic">🎥</span><span class="lbl">Detección en vivo</span></button>
+      <button data-view="dashboard"><span class="ic">📊</span><span class="lbl">Dashboard</span></button>
+      <button data-view="incident"><span class="ic">⚠️</span><span class="lbl">Detalle de incidente</span></button>
+      <button data-view="reports"><span class="ic">📑</span><span class="lbl">Reportes</span></button>
+      <button data-view="config"><span class="ic">⚙️</span><span class="lbl">Cámaras, zonas y balizas</span></button>
+    </nav>
+    <div class="foot">Mockup de interfaz v2 (D2)<br>Capstone PTY4614 · 2026.02</div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="title" id="topTitle">Detección en vivo</div>
+        <div class="sub" id="topSub">Faena Los Aromos · Monitoreo en tiempo real</div>
+      </div>
+      <div class="right">
+        <select class="select-faena">
+          <option>Faena Los Aromos</option>
+          <option>Faena Vista Sur</option>
+          <option>Faena Ribera del Río</option>
+        </select>
+        <div class="bell" title="Alertas activas">🔔<span class="dot" id="bellCount">3</span></div>
+        <div class="avatar">JP</div>
+      </div>
+    </div>
+    <div class="disclaimer">🎨 Mockup v2 — diseño propuesto en el D2 (tarea 3.4). Datos de ejemplo; no corresponde a la salida real del modelo.</div>
+
+    <div class="content">
+
+      <!-- ============ VISTA: DETECCIÓN EN VIVO ============ -->
+      <section class="view active" id="view-live">
+        <h2 class="view-title">Detección en vivo</h2>
+        <p class="view-desc">Simulación ilustrativa de la vista que vería el prevencionista: cajas verdes = EPP correcto, cajas rojas = infracción. Los rostros se difuminan automáticamente.</p>
+
+        <div class="live-wrap">
+          <div class="live-cam">
+            <div class="cam-head" style="display:flex;justify-content:space-between;align-items:center;">
+              <span class="zone" style="color:#fff;font-weight:700;">Cámara 02 · Zona de Andamios</span>
+              <span class="badge-live"><span class="pulse"></span>EN VIVO</span>
+            </div>
+            <svg id="liveScene" viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+
+          <div class="live-side">
+            <div class="stat-card">
+              <h4>Leyenda de detección</h4>
+              <div class="legend-row"><span class="legend-dot" style="background:var(--green)"></span> EPP completo (casco + chaleco)</div>
+              <div class="legend-row"><span class="legend-dot" style="background:var(--red)"></span> Infracción detectada</div>
+              <div class="legend-row"><span class="legend-dot" style="background:#9CA3AF"></span> Rostro difuminado automáticamente</div>
+            </div>
+            <div class="stat-card">
+              <h4>Registro de eventos</h4>
+              <div class="feed-log" id="liveFeed"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VISTA: DASHBOARD ============ -->
+      <section class="view" id="view-dashboard">
+        <h2 class="view-title">Dashboard de monitoreo</h2>
+        <p class="view-desc">Vista general de la faena: cámaras activas, cumplimiento de EPP e incidentes recientes.</p>
+
+        <div class="kpi-row">
+          <div class="kpi"><div class="val" id="kpiWorkers">0</div><div class="lbl">Personas analizadas hoy (sin identificar)</div></div>
+          <div class="kpi"><div class="val ok" id="kpiCompliance">0%</div><div class="lbl">Cumplimiento de EPP</div></div>
+          <div class="kpi"><div class="val warn">3</div><div class="lbl">Infracciones activas</div></div>
+          <div class="kpi"><div class="val accent">7</div><div class="lbl">Alertas en balizas zonales</div></div>
+        </div>
+
+        <div class="section-head">
+          <h3>Cámaras de la faena</h3>
+          <span class="badge-live"><span class="pulse"></span>4 cámaras conectadas</span>
+        </div>
+        <div class="cam-grid" id="camGrid"></div>
+
+        <div class="section-head">
+          <h3>Incidentes recientes</h3>
+          <button class="btn btn-ghost" onclick="showView('reports')">Ver reportes →</button>
+        </div>
+        <table class="incidents" id="incidentTable">
+          <thead>
+            <tr><th>Hora</th><th>Zona</th><th>Tipo</th><th>Estado</th><th></th></tr>
+          </thead>
+          <tbody id="incidentBody"></tbody>
+        </table>
+      </section>
+
+      <!-- ============ VISTA: DETALLE DE INCIDENTE ============ -->
+      <section class="view" id="view-incident">
+        <h2 class="view-title">Detalle de incidente</h2>
+        <p class="view-desc">Evidencia, trazabilidad de la alerta y estado del caso.</p>
+
+        <div class="detail-wrap">
+          <div>
+            <div class="evidence-box">
+              <svg id="incidentScene" viewBox="0 0 640 400" xmlns="http://www.w3.org/2000/svg"></svg>
+              <div class="evidence-cap">Evidencia fotográfica · rostro difuminado automáticamente · registrado en base de datos</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="meta-card">
+              <div class="meta-grid">
+                <div class="meta-item"><div class="k">Zona</div><div class="v" id="mZone">Zona de Andamios</div></div>
+                <div class="meta-item"><div class="k">Cámara</div><div class="v" id="mCam">Cámara 02</div></div>
+                <div class="meta-item"><div class="k">Tipo de infracción</div><div class="v" id="mType">Sin casco de seguridad</div></div>
+                <div class="meta-item"><div class="k">Hora</div><div class="v" id="mTime">—</div></div>
+                <div class="meta-item"><div class="k">N.º de seguimiento (anónimo)</div><div class="v" id="mId">TRK-2481</div></div>
+                <div class="meta-item"><div class="k">Estado</div><div class="v"><span class="tag red" id="mStatus">Abierto</span></div></div>
+              </div>
+              <div class="export-row">
+                <div class="field" style="width:100%;margin:0 0 6px;"><span>Cambiar estado (RF-14)</span><select><option>Abierto</option><option>Revisado</option><option>Cerrado</option><option>Falso positivo</option></select><textarea rows="2" placeholder="Comentario obligatorio al cerrar o marcar falso positivo"></textarea></div>
+                <button class="btn btn-primary" onclick="resolveIncident()">Guardar estado</button>
+                <button class="btn btn-ghost" onclick="showToast('📄 Evidencia descargada (simulado)')">Descargar evidencia</button>
+              </div>
+            </div>
+
+            <div class="meta-card">
+              <h4 style="margin:0 0 14px;font-size:.9rem;">Trazabilidad de la alerta</h4>
+              <ul class="timeline">
+                <li><div class="dot">1</div><div class="txt"><b>Infracción detectada</b><span>Cámara 02 · Zona de Andamios · 00:00.0 s</span></div></li>
+                <li><div class="dot">2</div><div class="txt"><b>Alerta en la baliza zonal</b><span>baliza-02 · 192.168.50.22 · sonido + pantalla · 00:01.4 s</span></div></li>
+                <li><div class="dot">3</div><div class="txt"><b>Registrado en la base de datos</b><span>Evidencia difuminada guardada · 00:02.1 s</span></div></li>
+                <li><div class="dot">4</div><div class="txt"><b>Notificación remota enviada</b><span>SMS + correo al prevencionista · 00:09.8 s</span></div></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VISTA: REPORTES ============ -->
+      <section class="view" id="view-reports">
+        <h2 class="view-title">Reportes</h2>
+        <p class="view-desc">Estadísticas por zona y turno — insumo para auditorías de gestión de seguridad y salud en el trabajo.</p>
+
+        <div class="rep-wrap">
+          <div class="rep-card">
+            <h4>Infracciones por zona (últimos 7 días)</h4>
+            <div class="bars" id="barsZone"></div>
+          </div>
+          <div class="rep-card">
+            <h4>Infracciones por turno (últimos 7 días)</h4>
+            <div class="bars" id="barsShift"></div>
+          </div>
+        </div>
+
+        <div class="rep-card" style="margin-top:18px;">
+          <h4>Exportar reporte</h4>
+          <p style="font-size:.82rem;color:var(--gray-m);margin:0 0 4px;">Genera el respaldo documental para la mutualidad o la auditoría interna.</p>
+          <div class="export-row">
+            <button class="btn btn-primary" onclick="showToast('📑 Reporte PDF generado (simulado)')">Exportar PDF</button>
+            <button class="btn btn-ghost" onclick="showToast('📊 Reporte Excel generado (simulado)')">Exportar Excel</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VISTA: CÁMARAS, ZONAS Y BALIZAS (v2) ============ -->
+      <section class="view" id="view-config">
+        <h2 class="view-title">Cámaras, zonas y balizas</h2>
+        <p class="view-desc">Solo administrador. Cada zona es un polígono sobre la imagen de una cámara y tiene una baliza asociada (RF-04, RF-09, RF-10).</p>
+        <div class="cfg-wrap">
+          <div class="rep-card">
+            <h4>Zona de riesgo · Cámara 02</h4>
+            <div class="zone-canvas">
+              <svg viewBox="0 0 400 210" xmlns="http://www.w3.org/2000/svg">
+                <rect width="400" height="210" fill="#4B5563"/>
+                <rect x="0" y="150" width="400" height="60" fill="#6B7280"/>
+                <rect x="40" y="40" width="70" height="110" fill="none" stroke="#9CA3AF" stroke-width="3"/>
+                <rect x="60" y="40" width="70" height="110" fill="none" stroke="#9CA3AF" stroke-width="3"/>
+                <polygon points="150,60 360,45 380,190 130,195" fill="rgba(220,38,38,.25)" stroke="#DC2626" stroke-width="2.5" stroke-dasharray="6 4"/>
+                <g fill="#fff" stroke="#DC2626" stroke-width="2"><circle cx="150" cy="60" r="5"/><circle cx="360" cy="45" r="5"/><circle cx="380" cy="190" r="5"/><circle cx="130" cy="195" r="5"/></g>
+                <text x="250" y="125" fill="#fff" font-size="14" text-anchor="middle" font-family="sans-serif" font-weight="700">Zona de Andamios</text>
+              </svg>
+            </div>
+            <div class="export-row">
+              <button class="btn btn-ghost">Dibujar polígono</button>
+              <button class="btn btn-ghost">Deshacer punto</button>
+              <button class="btn btn-primary">Guardar zona</button>
+            </div>
+            <table class="cfg" style="margin-top:14px;">
+              <thead><tr><th>Cámara</th><th>Zona</th><th>Baliza</th><th>Transmisión</th></tr></thead>
+              <tbody>
+                <tr><td>Cámara 01</td><td>Acceso principal</td><td>baliza-01</td><td><span class="tag green">● 1 FPS</span></td></tr>
+                <tr><td>Cámara 02</td><td>Zona de Andamios</td><td>baliza-02</td><td><span class="tag green">● 1 FPS</span></td></tr>
+                <tr><td>Cámara 03</td><td>Bodega de materiales</td><td>baliza-03</td><td><span class="tag green">● 1 FPS</span></td></tr>
+                <tr><td>Cámara 04</td><td>Losa piso 3</td><td>—</td><td><span class="tag red">Sin señal · reintentando</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div class="rep-card" style="margin-bottom:18px;">
+              <h4>Balizas zonales (heartbeat cada 30 s)</h4>
+              <table class="cfg">
+                <thead><tr><th>Baliza</th><th>Zona</th><th>IP</th><th>Batería</th><th>Estado</th></tr></thead>
+                <tbody>
+                  <tr><td>baliza-01</td><td>Acceso principal</td><td class="mono">192.168.50.21</td><td>87 %</td><td><span class="tag green"><span class="beacon-dot" style="background:var(--green)"></span>En línea</span></td></tr>
+                  <tr><td>baliza-02</td><td>Zona de Andamios</td><td class="mono">192.168.50.22</td><td>64 %</td><td><span class="tag green"><span class="beacon-dot" style="background:var(--green)"></span>En línea</span></td></tr>
+                  <tr><td>baliza-03</td><td>Bodega de materiales</td><td class="mono">192.168.50.23</td><td>12 %</td><td><span class="tag amber">Batería baja</span></td></tr>
+                  <tr><td>baliza-04</td><td>Losa piso 3</td><td class="mono">192.168.50.24</td><td>—</td><td><span class="tag red"><span class="beacon-dot" style="background:var(--red)"></span>Fuera de línea</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="rep-card">
+              <h4>Configurar baliza · baliza-02</h4>
+              <div class="field"><span>Dirección IP</span><input class="mono" value="192.168.50.22"></div>
+              <div class="field"><span>Duración de la alerta (1–30 s)</span><input type="number" value="10" min="1" max="30"></div>
+              <div class="field"><span>Sonido</span><select><option>Sirena</option><option>Mensaje de voz</option><option>Pitido</option></select></div>
+              <div class="field"><span>Mensaje en pantalla (máx. 40 caracteres)</span><input value="USO OBLIGATORIO DE CASCO"></div>
+              <div class="export-row">
+                <button class="btn btn-ghost" onclick="showToast('🔊 Alerta de prueba enviada a baliza-02 (simulado)')">Probar alerta</button>
+                <button class="btn btn-primary">Guardar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ INICIO DE SESIÓN (v2, RF-17) ============ -->
+<div class="login-overlay" id="login">
+  <div class="login-card">
+    <div class="logo" style="padding:0;"><div class="mark">🦺</div><div class="name" style="color:var(--dark2);">Casco<span>Vision</span></div></div>
+    <h2>Iniciar sesión</h2>
+    <p>Acceso para prevencionistas, supervisores y administradores. La sesión dura un turno (8 h).</p>
+    <div class="field"><span>Correo</span><input value="prevencion@constructora.cl"></div>
+    <div class="field"><span>Contraseña</span><input type="password" value="••••••••••"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:6px;" onclick="document.getElementById('login').classList.remove('show')">Entrar</button>
+    <p style="margin:16px 0 0;font-size:.74rem;">Conexión cifrada (HTTPS) dentro de la red de la faena.</p>
+  </div>
+</div>
+<div class="toast-wrap" id="toastWrap"></div>
+
+<!-- ============================================================ -->
+<script>
+/* ---------------------------------------------------------------
+   Datos simulados
+----------------------------------------------------------------- */
+const INCIDENTS = [
+  { time:'09:12', zone:'Zona de Andamios', type:'Sin casco', status:'Abierto',   cam:'Cámara 02', id:'TRK-2481', helmet:false, vest:true  },
+  { time:'08:47', zone:'Acceso Norte',      type:'Sin chaleco', status:'Cerrado', cam:'Cámara 01', id:'TRK-2479', helmet:true,  vest:false },
+  { time:'08:05', zone:'Bodega Materiales', type:'Sin casco', status:'Cerrado', cam:'Cámara 03', id:'TRK-2465', helmet:false, vest:true  },
+  { time:'07:51', zone:'Acceso Sur',        type:'Sin chaleco', status:'Abierto',   cam:'Cámara 04', id:'TRK-2460', helmet:true,  vest:false },
+  { time:'07:30', zone:'Zona de Andamios', type:'Sin casco y chaleco', status:'Cerrado', cam:'Cámara 02', id:'TRK-2455', helmet:false, vest:false },
+];
+
+/* ---------------------------------------------------------------
+   Generador de escenas SVG (trabajadores + cajas de detección)
+----------------------------------------------------------------- */
+function sceneDefs(){
+  return `<defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1f2937"/>
+      <stop offset="100%" stop-color="#374151"/>
+    </linearGradient>
+    <filter id="faceBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.6"/>
+    </filter>
+  </defs>`;
+}
+
+function buildBackground(w,h){
+  const groundY = h*0.82;
+  return `
+    <rect x="0" y="0" width="${w}" height="${h}" fill="url(#sky)"/>
+    <rect x="0" y="${groundY}" width="${w}" height="${h-groundY}" fill="#4B5563"/>
+    <!-- grúa -->
+    <line x1="${w*0.08}" y1="${groundY}" x2="${w*0.08}" y2="${h*0.12}" stroke="#6B7280" stroke-width="5"/>
+    <line x1="${w*0.08}" y1="${h*0.14}" x2="${w*0.42}" y2="${h*0.14}" stroke="#6B7280" stroke-width="4"/>
+    <line x1="${w*0.08}" y1="${h*0.14}" x2="${w*0.02}" y2="${h*0.30}" stroke="#6B7280" stroke-width="4"/>
+    <!-- andamios -->
+    ${Array.from({length:5}).map((_,i)=>`<line x1="${w*0.55+i*28}" y1="${groundY}" x2="${w*0.55+i*28}" y2="${h*0.35}" stroke="#9CA3AF" stroke-width="3" opacity=".6"/>`).join('')}
+    <line x1="${w*0.55}" y1="${h*0.55}" x2="${w*0.55+4*28}" y2="${h*0.55}" stroke="#9CA3AF" stroke-width="3" opacity=".6"/>
+    <line x1="${w*0.55}" y1="${h*0.70}" x2="${w*0.55+4*28}" y2="${h*0.70}" stroke="#9CA3AF" stroke-width="3" opacity=".6"/>
+  `;
+}
+
+// Dibuja un trabajador con casco/chaleco opcional + caja de detección + rostro difuminado
+function buildWorker(x, groundY, scale, helmet, vest, showBox=true){
+  const bodyH = 90*scale, headR = 15*scale;
+  const bodyTop = groundY - bodyH;
+  const headCy = bodyTop - headR*0.7;
+  const boxTop = headCy - headR*1.6;
+  const boxLeft = x - 26*scale;
+  const boxW = 52*scale;
+  const boxH = (groundY - boxTop);
+  const infra = !helmet || !vest;
+  const boxColor = infra ? '#DC2626' : '#16A34A';
+  const label = !helmet ? 'SIN CASCO' : (!vest ? 'SIN CHALECO' : 'EPP OK');
+
+  let s = '';
+  // torso
+  s += `<rect x="${x-14*scale}" y="${bodyTop}" width="${28*scale}" height="${bodyH}" rx="${8*scale}" fill="#374151"/>`;
+  // chaleco (franja)
+  if(vest){
+    s += `<rect x="${x-14*scale}" y="${bodyTop+10*scale}" width="${28*scale}" height="${14*scale}" fill="#F59E0B"/>`;
+  }
+  // piernas
+  s += `<rect x="${x-12*scale}" y="${groundY-4*scale}" width="${10*scale}" height="${18*scale}" fill="#1f2937"/>`;
+  s += `<rect x="${x+2*scale}" y="${groundY-4*scale}" width="${10*scale}" height="${18*scale}" fill="#1f2937"/>`;
+  // cabeza difuminada (rostro)
+  s += `<circle cx="${x}" cy="${headCy}" r="${headR}" fill="#D9A87E" filter="url(#faceBlur)"/>`;
+  // casco (nítido, sobre la cabeza)
+  if(helmet){
+    s += `<path d="M ${x-headR*1.15} ${headCy-2} a ${headR*1.15} ${headR*1.15} 0 0 1 ${headR*2.3} 0 Z" fill="#F59E0B"/>`;
+    s += `<rect x="${x-headR*1.2}" y="${headCy-3}" width="${headR*2.4}" height="${headR*0.35}" rx="${headR*0.15}" fill="#B45309"/>`;
+  }
+  // caja de detección + chip de etiqueta
+  if(showBox){
+    s += `<rect x="${boxLeft}" y="${boxTop}" width="${boxW}" height="${boxH}" fill="none" stroke="${boxColor}" stroke-width="2.5" rx="4"/>`;
+    const chipW = label.length*6.3*scale + 12;
+    s += `<rect x="${boxLeft}" y="${boxTop-18*scale}" width="${chipW}" height="${16*scale}" rx="3" fill="${boxColor}"/>`;
+    s += `<text x="${boxLeft+6}" y="${boxTop-6*scale}" font-size="${10*scale}" font-family="Segoe UI, Arial" font-weight="700" fill="#fff">${label}</text>`;
+  }
+  return s;
+}
+
+function buildSceneSVG(w, h, workers, scale=1){
+  const groundY = h*0.82;
+  let svg = sceneDefs() + buildBackground(w,h);
+  workers.forEach(wk=>{
+    svg += buildWorker(wk.x, groundY - (wk.yOff||0), (wk.scale||1)*scale, wk.helmet, wk.vest, wk.box!==false);
+  });
+  return svg;
+}
+
+/* ---------------------------------------------------------------
+   Vista en vivo — escena grande animada
+----------------------------------------------------------------- */
+let liveWorkers = [
+  { x:200, helmet:true,  vest:true,  scale:1.0 },
+  { x:360, helmet:false, vest:true,  scale:1.05 },
+  { x:520, helmet:true,  vest:false, scale:0.95 },
+  { x:700, helmet:true,  vest:true,  scale:1.0 },
+  { x:830, helmet:true,  vest:true,  scale:0.9 },
+];
+
+function renderLiveScene(){
+  document.getElementById('liveScene').innerHTML = buildSceneSVG(960, 540, liveWorkers, 1.6);
+}
+
+function logFeed(msg, cls){
+  const feed = document.getElementById('liveFeed');
+  const el = document.createElement('div');
+  el.className = 'entry';
+  const t = new Date().toLocaleTimeString('es-CL', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  el.innerHTML = `<b>${t}</b> — ${msg}`;
+  feed.prepend(el);
+  while(feed.children.length > 12) feed.removeChild(feed.lastChild);
+}
+
+function toggleRandomWorker(){
+  const idx = Math.floor(Math.random()*liveWorkers.length);
+  const wk = liveWorkers[idx];
+  // alterna aleatoriamente casco o chaleco
+  if(Math.random() > 0.5) wk.helmet = !wk.helmet; else wk.vest = !wk.vest;
+  renderLiveScene();
+  const infra = !wk.helmet || !wk.vest;
+  if(infra){
+    logFeed(`⚠️ Infracción detectada en trabajador #${idx+1} — ${!wk.helmet?'sin casco':'sin chaleco'}`, 'red');
+    showToast(`🔴 Nueva infracción — Zona de Andamios`);
+  } else {
+    logFeed(`✅ Persona #${idx+1} regularizó su EPP`, 'green');
+  }
+}
+
+/* ---------------------------------------------------------------
+   Dashboard — cámaras
+----------------------------------------------------------------- */
+const CAMS = [
+  { zone:'Acceso Norte',       alert:false, workers:[{x:60,helmet:true,vest:true},{x:140,helmet:true,vest:true}] },
+  { zone:'Zona de Andamios',  alert:true,  workers:[{x:50,helmet:false,vest:true},{x:130,helmet:true,vest:true},{x:190,helmet:true,vest:false}] },
+  { zone:'Bodega Materiales', alert:false, workers:[{x:80,helmet:true,vest:true}] },
+  { zone:'Acceso Sur',         alert:false, workers:[{x:60,helmet:true,vest:true},{x:150,helmet:true,vest:true}] },
+];
+
+function renderCamGrid(){
+  const grid = document.getElementById('camGrid');
+  grid.innerHTML = CAMS.map((c,i)=>`
+    <div class="cam-card ${c.alert?'alert':''}">
+      <div class="cam-head">
+        <span class="zone">${c.zone}</span>
+        <span class="status ${c.alert?'alert':'ok'}">${c.alert?'⚠ Infracción':'✓ Normal'}</span>
+      </div>
+      <svg viewBox="0 0 320 200">${buildSceneSVG(320,200,c.workers.map(w=>({...w,scale:0.55})), 1)}</svg>
+      <div class="cam-foot"><span>Cámara 0${i+1}</span><span>ONVIF/RTSP · 1 FPS</span></div>
+    </div>
+  `).join('');
+}
+
+/* ---------------------------------------------------------------
+   Tabla de incidentes
+----------------------------------------------------------------- */
+function renderIncidentTable(){
+  const body = document.getElementById('incidentBody');
+  body.innerHTML = INCIDENTS.map((inc, i)=>`
+    <tr>
+      <td>${inc.time}</td>
+      <td>${inc.zone}</td>
+      <td>${inc.type}</td>
+      <td><span class="tag ${inc.status==='Abierto'?'red':'green'}">${inc.status}</span></td>
+      <td><button class="btn btn-ghost" onclick="openIncident(${i})">Ver detalle</button></td>
+    </tr>
+  `).join('');
+}
+
+function openIncident(i){
+  const inc = INCIDENTS[i];
+  document.getElementById('mZone').textContent = inc.zone;
+  document.getElementById('mCam').textContent = inc.cam;
+  document.getElementById('mType').textContent = inc.type;
+  document.getElementById('mTime').textContent = 'Hoy, ' + inc.time;
+  document.getElementById('mId').textContent = inc.id;
+  const statusEl = document.getElementById('mStatus');
+  statusEl.textContent = inc.status;
+  statusEl.className = 'tag ' + (inc.status==='Abierto' ? 'red' : 'green');
+  document.getElementById('incidentScene').innerHTML = buildSceneSVG(640,400,[{x:320,helmet:inc.helmet,vest:inc.vest,scale:1.4}],1);
+  showView('incident');
+}
+
+function resolveIncident(){
+  const statusEl = document.getElementById('mStatus');
+  statusEl.textContent = 'Cerrado';
+  statusEl.className = 'tag green';
+  showToast('✅ Incidente marcado como resuelto');
+}
+
+/* ---------------------------------------------------------------
+   Reportes — barras
+----------------------------------------------------------------- */
+function renderBars(containerId, data, altEvery){
+  const max = Math.max(...data.map(d=>d.v));
+  const el = document.getElementById(containerId);
+  el.innerHTML = data.map((d,i)=>`
+    <div class="bar-col">
+      <div class="bar ${altEvery && i%2? 'alt':''}" style="height:${(d.v/max*100)}%;">
+        <div class="num">${d.v}</div>
+      </div>
+      <div class="lbl">${d.l}</div>
+    </div>
+  `).join('');
+}
+
+/* ---------------------------------------------------------------
+   Toasts
+----------------------------------------------------------------- */
+function showToast(msg){
+  const wrap = document.getElementById('toastWrap');
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  wrap.appendChild(t);
+  setTimeout(()=> t.remove(), 4100);
+}
+
+/* ---------------------------------------------------------------
+   Navegación entre vistas
+----------------------------------------------------------------- */
+const VIEW_TITLES = {
+  live:      ['Detección en vivo', 'Faena Los Aromos · Monitoreo en tiempo real'],
+  dashboard: ['Dashboard de monitoreo', 'Faena Los Aromos · Resumen del día'],
+  incident:  ['Detalle de incidente', 'Trazabilidad completa de la alerta'],
+  reports:   ['Reportes', 'Estadísticas por zona y turno'],
+  config:    ['Cámaras, zonas y balizas', 'Configuración de la faena · solo administrador'],
+};
+
+function showView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
+  document.getElementById('topTitle').textContent = VIEW_TITLES[name][0];
+  document.getElementById('topSub').textContent = VIEW_TITLES[name][1];
+}
+
+document.getElementById('nav').addEventListener('click', e=>{
+  const btn = e.target.closest('button[data-view]');
+  if(btn) showView(btn.dataset.view);
+});
+
+/* ---------------------------------------------------------------
+   Animación de contadores KPI
+----------------------------------------------------------------- */
+function animateCount(el, target, suffix=''){
+  let cur = 0;
+  const step = Math.max(1, Math.round(target/40));
+  const iv = setInterval(()=>{
+    cur += step;
+    if(cur >= target){ cur = target; clearInterval(iv); }
+    el.textContent = cur + suffix;
+  }, 25);
+}
+
+/* ---------------------------------------------------------------
+   Init
+----------------------------------------------------------------- */
+renderLiveScene();
+renderCamGrid();
+renderIncidentTable();
+openIncident(0);
+
+showView('live');
+renderBars('barsZone', [
+  {l:'Andamios', v:9}, {l:'Acceso N.', v:4}, {l:'Bodega', v:2}, {l:'Acceso S.', v:5}
+], true);
+renderBars('barsShift', [
+  {l:'Mañana', v:6}, {l:'Tarde', v:10}, {l:'Noche', v:4}
+], true);
+animateCount(document.getElementById('kpiWorkers'), 128);
+animateCount(document.getElementById('kpiCompliance'), 94, '%');
+
+logFeed('Sistema iniciado — 4 cámaras conectadas', 'ok');
+logFeed('Persona #2 detectada sin casco — Zona de Andamios', 'red');
+setInterval(toggleRandomWorker, 4500);
+/* v2: abrir una vista desde la URL, por ejemplo #config o #login */
+(function(){ const h = location.hash.slice(1) || window.VISTA || '';
+  if(h === 'login') document.getElementById('login').classList.add('show');
+  else if(h && VIEW_TITLES[h]) showView(h); })();
+</script>
+</body>
+</html>

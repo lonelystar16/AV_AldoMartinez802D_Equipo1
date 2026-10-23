@@ -84,7 +84,11 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
   "evidence_path": "incidents/2026/01/15/incidente-143000-000000.jpg",
   "beacon_alert": {"status": "alerted", "latency_ms": 820},
   "person_track_id": 7,
-  "violation_types": ["missing_helmet", "missing_reflective_vest"]
+  "violation_types": ["missing_helmet", "missing_reflective_vest"],
+  "event": "inicio",
+  "episode_id": "0f9a1c2e-1111-4222-8333-444455556666",
+  "occurred_at": "2026-01-15T14:30:00Z",
+  "ping_count": 0
 }
 ```
 
@@ -99,6 +103,10 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
 | `beacon_alert.latency_ms` | Entero ≥ 0 o `null` |
 | `person_track_id` | Opcional. Identificador de seguimiento de la persona (ByteTrack) |
 | `violation_types` | Opcional. Todas las infracciones de la persona en el evento |
+| `event` | Por defecto `inicio`. También `ping` y `fin` (ver ciclo de vida) |
+| `episode_id` | Opcional en `inicio`, **obligatorio** en `ping` y `fin` |
+| `occurred_at` | Opcional. ISO 8601 con zona horaria: cuándo ocurrió este aviso |
+| `ping_count` | Opcional. Entero ≥ 0: pings enviados desde el inicio |
 
 Respuesta `201 Created`:
 
@@ -106,7 +114,9 @@ Respuesta `201 Created`:
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "open",
-  "created_at": "2026-01-15T14:30:02Z"
+  "created_at": "2026-01-15T14:30:02Z",
+  "event": "inicio",
+  "episode_id": "0f9a1c2e-1111-4222-8333-444455556666"
 }
 ```
 
@@ -115,6 +125,26 @@ Respuesta `201 Created`:
   configurada en PostgreSQL.
 - `503 Service Unavailable`: `EDGE_API_TOKEN` sin configurar, PostgreSQL sin
   configurar o caído, o migraciones pendientes.
+
+#### Ciclo de vida del aviso (`event`)
+
+El agente Edge no silencia los avisos repetidos de una persona sin EPP: los
+mantiene vivos y la API registra cuándo empezó y cuándo terminó el registro.
+Cada aviso informa su momento del ciclo:
+
+| `event` | Qué hace la API |
+| --- | --- |
+| `inicio` | Crea el registro. `started_at` queda fijado en `detected_at` |
+| `ping` | **Actualiza** el registro del `episode_id`: sube `ping_count` y `last_ping_at`. No crea un incidente nuevo ni toca la evidencia original |
+| `fin` | Actualiza el registro y fija `ended_at`, el momento en que la persona dejó de estar sin EPP |
+
+El `episode_id` lo genera el agente al abrir el registro y lo reenvía en cada
+ping y en el cierre. Por eso:
+
+- un ping que llega sin que el `inicio` haya sido posible (por ejemplo, porque
+  quedó en la cola local) crea el registro, para no perder el aviso;
+- dos personas sin EPP abren dos registros distintos, y la segunda se avisa de
+  inmediato aunque la primera esté a mitad de su ventana de ping.
 
 ### `GET /incidents`
 

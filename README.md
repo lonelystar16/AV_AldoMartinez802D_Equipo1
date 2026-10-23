@@ -77,17 +77,23 @@ El almacenamiento es un archivo JSON por defecto o PostgreSQL con
 `CASCOVISION_STORAGE=postgres`. La configuración, las variables y las
 migraciones están en [`docs/API.md`](Fase%202/Evidencias%20Proyecto/docs/API.md).
 
-Para ejecutar la API disponible actualmente de forma directa, desde la carpeta
-`Fase 2/Evidencias Proyecto`, instala las dependencias y ejecuta:
+Para ejecutar la API disponible actualmente de forma directa, desde la raíz
+del repositorio, instala las dependencias y ejecuta:
 
 ```bash
-python -m pip install -r requirements.txt
+uv sync --group dev
 export EDGE_API_TOKEN=un_valor_secreto     # PowerShell: $env:EDGE_API_TOKEN="un_valor_secreto"
-python -m uvicorn app.main:app --app-dir src/api --reload
+uv run uvicorn app.main:app --app-dir "Fase 2/Evidencias Proyecto/src/api" --reload
 ```
 
-La opción `--app-dir src/api` es necesaria porque el punto de entrada está en
-`src/api/app/main.py`.
+La opción `--app-dir` es necesaria porque el punto de entrada está en
+`Fase 2/Evidencias Proyecto/src/api/app/main.py`.
+
+Las pruebas de la API se ejecutan con:
+
+```bash
+uv run pytest
+```
 
 Con el servidor iniciado, comprueba la disponibilidad de la API en
 `http://localhost:8000/health`. La respuesta esperada es:
@@ -103,32 +109,46 @@ Con el servidor iniciado, comprueba la disponibilidad de la API en
 
 ### Dependencias del modelo YOLO26
 
-El agente Edge y los scripts de visión usan además las librerías de
-[`requirements-yolo.txt`](Fase%202/Evidencias%20Proyecto/requirements-yolo.txt),
-documentadas en detalle en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md). En resumen:
+El agente Edge y los scripts de visión usan además las librerías del grupo
+`yolo`, documentadas en detalle en
+[`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md). El proyecto
+usa **uv** como fuente única de dependencias:
 
 ```bash
-python -m pip install -r requirements-yolo.txt
+uv sync --group dev --group yolo
 ```
 
-El archivo instala PyTorch con CUDA 12.6 desde el índice de PyTorch; en un
-equipo sin GPU NVIDIA, ver las alternativas en el README del modelo.
+El grupo `yolo` instala PyTorch con CUDA 12.6 desde el índice oficial de
+PyTorch (`torch==2.14.1+cu126`), Ultralytics, `lap` para el seguimiento
+ByteTrack y `opencv-python` en la rama 4.x. La versión de OpenCV está fijada
+por debajo de 5.0 porque la 5.x eliminó `cv2.CascadeClassifier`, que usan los
+scripts de prueba. En un equipo sin GPU NVIDIA, hay que quitar el índice de
+PyTorch y dejar que se instale la variante de CPU.
 
 Con la cámara conectada:
 
 ```bash
 # Monitoreo local, sin API
-python "Yolo/testing y modelamiento/monitoreo_v2.py"
+uv run python "Yolo/modelamiento/monitoreo_v2.py"
 
 # Agente Edge: reporta los incidentes a la API
-python "Yolo/testing y modelamiento/monitoreo_api.py"
+uv run python "Yolo/modelamiento/monitoreo_api.py"
 ```
 
 ## Modelo de detección
 
-El modelo entrenado es [`Fase 2/Evidencias Proyecto/models/cascovision_yolo26s.pt`](Fase%202/Evidencias%20Proyecto/models/) (YOLO26s, 19,4 MB), con sus métricas en el README de esa carpeta. El criterio de aceptación es mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85 (RNF-05 del SRS). `models/` es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`. El dataset de entrenamiento (~258 MB) no se versiona; el README del modelo explica cómo obtenerlo.
+El modelo entregado es [`Fase 2/Evidencias Proyecto/models/cascovision_yolo26s.pt`](Fase%202/Evidencias%20Proyecto/models/) (YOLO26s, 19,4 MB), con sus métricas en el README de esa carpeta. El criterio de aceptación es mAP@0,5 ≥ 0,90 y *recall* ≥ 0,85 (RNF-05 del SRS). `models/` es la única excepción a la regla de `.gitignore` que excluye `*.pt` y `*.onnx`. El dataset de entrenamiento (~440 MB) no se versiona; el README del modelo explica cómo obtenerlo.
 
-La corrida actual (`train-9`) **no cumple todavía el RNF-05**: alcanza mAP@0,5 = 0,62 y *recall* = 0,62, con señales de sobreajuste entre entrenamiento y validación. Sobre las tres clases que el sistema usa realmente (`helmet`, `vest`, `Person`) promedia **0,891**. El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md), que documenta esta versión como línea base.
+El detector actual (`train-10`) trabaja con **5 clases** (`helmet`, `no_helmet`, `no_vest`, `Person`, `vest`) sobre un export de Roboflow del conjunto Construction-PPE. La diferencia con el modelo anterior no es solo de esquema: **las infracciones se detectan de forma positiva**, en vez de inferirse por la ausencia de un casco. Eso se traduce en un salto del *recall* de las reglas de negocio:
+
+| Regla | `train-9` (11 clases) | **`train-10` (5 clases)** |
+| --- | --- | --- |
+| ¿lleva casco? | P 1,000 · R 0,643 · E 0,643 | **P 0,986 · R 0,947 · E 0,934** |
+| ¿lleva chaleco? | P 0,951 · R 0,583 · E 0,566 | **P 1,000 · R 0,887 · E 0,887** |
+
+Con esto **el RNF-05 se cumple en las dos reglas de negocio** (recall ≥ 0,85); ninguna lo cumplía antes. El mAP@0,5 promedio queda en 0,877, por debajo del 0,90 del RNF-05, pero esa cifra no es comparable con la del modelo anterior: el dataset nuevo tiene 5 clases todas del producto, frente a las 11 del anterior (6 irrelevantes que hundían el promedio). El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
+
+La línea base `train-9` (11 clases) queda documentada como referencia histórica: mAP@0,5 = 0,624, con señales de sobreajuste entre entrenamiento y validación.
 
 La misma carpeta incluye `face_detection_yunet_2023mar.onnx` (227 KB), el detector de rostros que usa el agente Edge para difuminar la evidencia.
 
