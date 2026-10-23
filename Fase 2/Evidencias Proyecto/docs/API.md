@@ -35,14 +35,11 @@ entorno del proceso; la API no lee el archivo `.env` por sí misma.
 
 - **`json`:** para desarrollo y pruebas sin base de datos. Guarda en un archivo
   con escritura atómica. No usar con varios procesos a la vez.
-- **`postgres`:** el almacenamiento de la arquitectura. Antes de usarlo, aplicar
-  en orden las migraciones de `db/migrations/`:
-
-  ```bash
-  psql -d cascovision -f db/migrations/001_create_incidents.sql
-  psql -d cascovision -f db/migrations/002_add_tracking_fields.sql
-  psql -d cascovision -f db/migrations/003_add_episode_lifecycle.sql
-  ```
+- **`postgres`:** el almacenamiento de la arquitectura. Antes de usarlo, seguir
+  el [orden de migraciones D2 v1.0 y carga de catálogos](../db/seed/README.md):
+  001 → 002 → 003 (episodios) → 004 (tablas) → catálogos → 005 (FK e índices).
+  Los datos demo son opcionales y se cargan después de la 005. Para una base
+  existente, registrar sus cámaras y zonas reales antes de activar las FK.
 
 La capa `src/api/app/almacen.py` encapsula ambas opciones; la API no depende de
 cuál se use.
@@ -97,7 +94,7 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
 
 | Campo | Validación |
 | --- | --- |
-| `camera_id`, `zone_id` | No vacíos |
+| `camera_id`, `zone_id` | No vacíos; con PostgreSQL y la migración 005 deben existir en los catálogos |
 | `detected_at` | ISO 8601 **con zona horaria** |
 | `violation_type` | `missing_helmet` o `missing_reflective_vest` |
 | `confidence` | Entre `0` y `1` |
@@ -124,7 +121,8 @@ Respuesta `201 Created`:
 ```
 
 - `401 Unauthorized`: token ausente o incorrecto.
-- `422 Unprocessable Entity`: cuerpo o campos inválidos.
+- `422 Unprocessable Entity`: cuerpo o campos inválidos, o cámara/zona no
+  configurada en PostgreSQL.
 - `503 Service Unavailable`: `EDGE_API_TOKEN` sin configurar, PostgreSQL sin
   configurar o caído, o migraciones pendientes.
 
