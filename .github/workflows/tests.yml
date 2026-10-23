@@ -1,4 +1,5 @@
-﻿name: CascoVision - Tests
+﻿
+name: CascoVision - Tests
 
 on:
   pull_request:
@@ -26,13 +27,14 @@ jobs:
           enable-cache: true
 
       - name: Instalar dependencias del proyecto
-        run: uv sync --locked --group dev
+        run: uv sync --project "Fase 2/Evidencias Proyecto" --locked --group dev
 
       - name: Instalar PyTorch para CPU
-        run: uv pip install --python .venv/bin/python --index-url https://download.pytorch.org/whl/cpu torch torchvision
+        run: uv pip install --python "Fase 2/Evidencias Proyecto/.venv/bin/python" --index-url https://download.pytorch.org/whl/cpu torch torchvision
 
       - name: Instalar dependencias de vision computacional
-        run: uv pip install --python .venv/bin/python ultralytics numpy "opencv-python>=4.11,<5.0"
+        run: uv pip install --python "Fase 2/Evidencias Proyecto/.venv/bin/python" ultralytics numpy "opencv-python>=4.11,<5.0"
 
       - name: Ejecutar pruebas
-        run: uv run --locked --no-sync pytest -v
+        run: uv run --project "Fase 2/Evidencias Proyecto" --locked --no-sync pytest -v
+
