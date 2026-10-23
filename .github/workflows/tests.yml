@@ -30,6 +30,12 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
+      - name: Revisar ubicación del proyecto
+        run: |
+          pwd
+          ls -la
+          find . -name pyproject.toml -print
+          
       - name: Instalar dependencias del proyecto
         run: uv sync --locked --group dev
 
