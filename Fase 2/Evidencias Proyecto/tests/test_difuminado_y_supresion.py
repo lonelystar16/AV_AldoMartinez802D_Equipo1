@@ -320,6 +320,8 @@ class MonitorFalso:
     _retomar_episodio = mc.MonitorEPP._retomar_episodio
     _controlar_ping = mc.MonitorEPP._controlar_ping
     _depurar_invisibles = mc.MonitorEPP._depurar_invisibles
+    _guardar_en_espera = mc.MonitorEPP._guardar_en_espera
+    _apartar_por_zona = mc.MonitorEPP._apartar_por_zona
     _cerrar_episodio = mc.MonitorEPP._cerrar_episodio
     _consola = staticmethod(lambda pid, estado, evento="inicio": None)
 
@@ -670,6 +672,9 @@ class MotorPrueba(mc.MonitorEPP):
         self.n_frames = 0
         self.t_prev = time.time()
         self.fps = 0.0
+        self.camera_id = "camara-01"
+        # Sin zonas: este doble del motor reproduce el comportamiento de siempre.
+        self.zonas = None
         self.avisos = []
         self.al_registrar = self.avisos.append
 
