@@ -36,6 +36,7 @@ from monitoreo_api import ReporteAPI  # noqa: E402
 from motor_cascovision import PING_SEGUNDOS, MonitorEPP  # noqa: E402
 
 CONFIG_EJEMPLO = Path(__file__).with_name("config.example.json")
+TIMEOUT_CAMARA_MS = 5000
 
 
 class Zona:
@@ -175,7 +176,13 @@ class ReporteAsincrono:
 
 
 def abrir(fuente: str):
-    return cv2.VideoCapture(int(fuente) if fuente.isdigit() else fuente)
+    if fuente.isdigit():
+        return cv2.VideoCapture(int(fuente))
+    # RTSP por TCP: por UDP un paquete perdido corrompe el cuadro que analiza el modelo.
+    os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+    # 5 s sin cuadros = cámara caída; OpenCV esperaría 30 s antes de soltar grab().
+    return cv2.VideoCapture(fuente, cv2.CAP_FFMPEG, [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, TIMEOUT_CAMARA_MS,
+                                                     cv2.CAP_PROP_READ_TIMEOUT_MSEC, TIMEOUT_CAMARA_MS])
 
 
 def guardar_cuadro(frame, carpeta: Path) -> None:

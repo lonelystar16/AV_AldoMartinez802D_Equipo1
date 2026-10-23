@@ -23,4 +23,21 @@ El polígono de `poligono` va en coordenadas relativas (0 a 1) del cuadro. Una p
 
 Salidas en `edge-datos/` (fuera de Git): la cola `cola_incidentes.jsonl` y `ultimo_cuadro.jpg`, el último cuadro ya difuminado para la vista en vivo. La evidencia queda en `incidents/AAAA/MM/DD/`.
 
+## Cámaras IP (RTSP)
+
+- **Transporte:** el agente pide RTSP por TCP. Por UDP, un paquete perdido corrompe el cuadro que analiza el modelo. Para cambiarlo se define `OPENCV_FFMPEG_CAPTURE_OPTIONS` antes de lanzar el agente.
+- **Caída de la cámara:** si pasan 5 s sin cuadros, el agente la da por caída y vuelve a abrir la URL cada 2 s. Si al volver la persona sigue en la imagen, el seguimiento continúa sobre el mismo incidente.
+- **Prueba sin cámara real:** `tests/camara_rtsp_simulada.py` publica un video como cámara IP en H.264, con el ffmpeg del sistema:
+
+  ```powershell
+  uv run python "Fase 2/Evidencias Proyecto/tests/camara_rtsp_simulada.py" video.mp4 8554
+  uv run python "Fase 2/Evidencias Proyecto/src/edge/agente.py" --fuente rtsp://127.0.0.1:8554/camara
+  ```
+
+  `tests/test_edge_rtsp.py` comprueba la lectura en vivo y la reconexión. Sin ffmpeg, la prueba se omite.
+- **Prueba de punta a punta (23-10-2026):** cámara simulada, agente con `cascovision_yolo26s.pt`, baliza simulada y API. Resultado:
+  - Se registró un incidente con pings cada 10 s y la baliza se alertó en 7 a 37 ms.
+  - Se cortó la cámara 6 s: el agente lo detectó a los 5 s y se reconectó.
+  - Al volver la cámara, siguió el mismo incidente, que terminó con 5 pings.
+
 Pendiente: leer la configuración desde `GET /edge/config` e informar el estado de la baliza con `PUT /edge/beacons/{id}/status`, cuando la API los tenga (tarea 4.15), y armar su imagen Docker (tarea 4.17).
