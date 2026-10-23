@@ -20,6 +20,8 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
+from zonas import zona_de
+
 # ==================== CONFIGURACIÓN ====================
 
 
@@ -119,6 +121,18 @@ PING_SEGUNDOS = 60
 # Un ping no crea un incidente nuevo, sino que reenvia el ya registrado con
 # este marcador. La API lo usa para actualizar el incidente en vez de crear otro.
 TIPO_EVENTO = "ping"
+
+# --- Zonas de riesgo ---
+#
+# Sin zonas configuradas el motor sigue siendo el de siempre: mira a todo el
+# mundo y reporta a todo el mundo. Con zonas, solo se abre registro de quien
+# está dentro de alguna; ver `zonas.py` y `monitoreo_sector.py`.
+#
+# Valores por defecto para los agentes que no configuran nada: hoy están
+# escritos a mano en el incidente, y quedan aquí para no cambiar el
+# comportamiento al introducir el parámetro.
+CAMARA_POR_DEFECTO = "camara-01"
+ZONA_POR_DEFECTO = "zona-norte"
 
 # --- Difuminado a escala ---
 #
@@ -578,7 +592,8 @@ class MonitorEPP:
     """Detecta infracciones de EPP, difumina rostros y registra incidentes."""
 
     def __init__(self, ruta_modelo=None, ruta_yunet=None, carpeta_evidencia="incidents",
-                 al_registrar=None, ping_segundos=PING_SEGUNDOS):
+                 al_registrar=None, ping_segundos=PING_SEGUNDOS,
+                 camera_id=CAMARA_POR_DEFECTO, zonas=None):
         ruta_modelo = ruta_modelo or RUTA_MODELO_EPP
         if not Path(ruta_modelo).is_file():
             raise IOError(f"No se encontró el modelo YOLO: {ruta_modelo}")
@@ -588,6 +603,12 @@ class MonitorEPP:
         self.al_registrar = al_registrar
         # Intervalo del ping de mantenimiento. 0 lo desactiva.
         self.ping_segundos = max(0, int(ping_segundos))
+        # Cómo se reporta esta cámara a la API, y las zonas de riesgo que
+        # vigila: `None` significa que se vigila todo el encuadre, que es el
+        # comportamiento de siempre. Cada episodio queda anclado a la zona en
+        # la que nació, que es lo que se reporta como `zone_id`.
+        self.camera_id = camera_id
+        self.zonas = zonas
         self.historial: dict[int, deque] = {}
         self.ultimo_estado: dict[int, frozenset] = {}
         self.estado_confirmado: dict[int, frozenset] = {}
@@ -596,8 +617,8 @@ class MonitorEPP:
         # Ultima caja vista de cada persona: sirve para reconocer que la misma
         # persona reaparece tras un parpadeo del detector.
         self.caja_vista: dict[int, tuple] = {}
-        # Episodio en curso por persona: inicio, ultimo ping y el incidente
-        # ya registrado que se reenvia en cada ping.
+        # Episodio en curso por persona: inicio, ultimo ping, la zona donde
+        # nació y el incidente ya registrado que se reenvia en cada ping.
         self.episodio: dict[int, dict] = {}
         # Episodios en espera de reaparicion: la persona se perdio de vista
         # (el detector de 'Person' parpadeo) pero no por eso se cierra el
@@ -649,7 +670,7 @@ class MonitorEPP:
             partes.append(e)
         return partes
 
-    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None):
+    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None, zona=None):
         """Gestiona el ciclo de vida del aviso de una persona.
 
         Decide que hacer con el estado confirmado de la persona, aplicando la
@@ -665,6 +686,9 @@ class MonitorEPP:
 
         'caja' es la caja de la persona en el frame actual: permite reconocer
         que es la misma persona que se perdio de vista y retomar su episodio.
+        'zona' es el id de la zona de riesgo en la que esta parado, o None si
+        no hay zonas configuradas: con el que nace el episodio es el que se
+        reporta como zone_id.
 
         Devuelve el tipo de evento generado: "inicio", "ping", "fin" o None.
         """
@@ -690,14 +714,14 @@ class MonitorEPP:
             self.episodio.pop(pid, None)
             self.violacion_confirmada[pid] = clave
             self.estado_confirmado[pid] = estado
-            if desconocida and self._retomar_episodio(pid, clave, caja):
+            if desconocida and self._retomar_episodio(pid, clave, caja, zona):
                 # No es nadie nuevo: es a quien el detector dejo de ver y que
                 # ahora vuelve, a veces con otro id de ByteTrack. Sigue siendo
                 # el mismo registro, asi que no se abre un INICIO; pasa
                 # directamente al control del ping.
                 return self._controlar_ping(pid, nuevos, confianza, ahora)
             self.episodio[pid] = {"inicio": ahora, "ultimo_ping": ahora,
-                                  "incidente": None}
+                                  "incidente": None, "zona": zona}
             nuevos[pid] = (notificables, confianza, "inicio")
             return "inicio"
 
@@ -708,14 +732,14 @@ class MonitorEPP:
             # Se confirmo la infraccion sin haber pasado por un inicio (por
             # ejemplo, tras descartar a la persona por quedar fuera de cuadro).
             self.episodio[pid] = {"inicio": ahora, "ultimo_ping": ahora,
-                                  "incidente": None}
+                                  "incidente": None, "zona": zona}
             nuevos[pid] = (notificables, confianza, "inicio")
             return "inicio"
 
         return self._controlar_ping(pid, nuevos, confianza, ahora)
 
-    def _retomar_episodio(self, pid, clave, caja=None):
-        """Retoma un episodio en espera que tenga la misma infraccion.
+    def _retomar_episodio(self, pid, clave, caja=None, zona=None):
+        """Retoma un episodio en espera que tenga la misma infraccion y zona.
 
         Cuando la deteccion de 'Person' parpadea (gafas, sombra, perfil), la
         persona se pierde de vista y ByteTrack le asigna otro id al volver.
@@ -733,6 +757,10 @@ class MonitorEPP:
         for i in range(len(self.en_espera) - 1, -1, -1):
             item = self.en_espera[i]
             if item["clave"] != clave:
+                continue
+            if item.get("zona") != zona:
+                # El episodio quedo anclado a otra zona: retomarlo aqui
+                # reportaria un incidente bajo un zone_id que ya no le toca.
                 continue
             if centro is not None and item["centro"] is not None:
                 if math.hypot(centro[0] - item["centro"][0],
@@ -821,8 +849,10 @@ class MonitorEPP:
             if not tipos:
                 raise ValueError("No se puede registrar un incidente sin infraccion")
             incidente = {
-                "camera_id": "camara-01",
-                "zone_id": "zona-norte",
+                "camera_id": self.camera_id,
+                # La zona en la que nacio el episodio; sin zonas configuradas
+                # queda la de siempre, para no romper el contrato de la API.
+                "zone_id": (episodio.get("zona") if episodio else None) or ZONA_POR_DEFECTO,
                 "detected_at": momento.isoformat().replace("+00:00", "Z"),
                 "violation_type": tipos[0],
                 "violation_types": tipos,
@@ -890,12 +920,7 @@ class MonitorEPP:
             caja = self.caja_vista.pop(pid, None)
             episodio = self.episodio.pop(pid, None)
             if episodio is not None and episodio.get("incidente") is not None:
-                self.en_espera.append({"pid": pid,
-                                       "clave": clave,
-                                       "centro": centro_caja(caja),
-                                       "radio": alcance_reaparicion(caja),
-                                       "episodio": episodio,
-                                       "perdido": instante})
+                self._guardar_en_espera(pid, clave, caja, episodio, instante)
 
         # Ya no puede afirmarse que sigan sin EPP: se cierran.
         vencidos = [e for e in self.en_espera
@@ -910,6 +935,43 @@ class MonitorEPP:
 
         return cierres
 
+    def _guardar_en_espera(self, pid, clave, caja, episodio, instante):
+        """Aparta un episodio en curso sin cerrarlo.
+
+        Comparten este camino dos motivos que significan lo mismo: dejar de ver
+        a la persona, y verla fuera de su zona de riesgo. En los dos el
+        episodio se guarda con la zona en la que nació, y se retoma si vuelve
+        a tiempo o se cierra con FIN cuando vence la gracia.
+        """
+        self.en_espera.append({"pid": pid,
+                               "clave": clave,
+                               "zona": episodio.get("zona"),
+                               "centro": centro_caja(caja),
+                               "radio": alcance_reaparicion(caja),
+                               "episodio": episodio,
+                               "perdido": instante})
+
+    def _apartar_por_zona(self, pid, caja):
+        """Guarda el episodio de alguien que acaba de dejar su zona de riesgo.
+
+        No se cierra en el acto: alguien que cruza el borde y vuelve no debe
+        arrastrar un FIN y un INICIO. Pasa a espera con la misma gracia que la
+        pérdida de detección, y si la persona regresa a esa misma zona con la
+        misma falta y cerca, se retoma con el mismo episode_id.
+
+        Se deshace tambien de la confirmación de la infracción: si no, al
+        volver se la tomaría por una infracción sostenida y no por alguien
+        que se fue y volvió, que es lo que es.
+        """
+        clave = self.violacion_confirmada.pop(pid, None)
+        self.estado_confirmado.pop(pid, None)
+        episodio = self.episodio.pop(pid, None)
+        if episodio is None or episodio.get("incidente") is None:
+            # Sin registro ya enviado no hay nada que retener: abrir otro
+            # incidente al volver seria duplicar.
+            return
+        self._guardar_en_espera(pid, clave, caja, episodio, time.monotonic())
+
     # ---------- ciclo principal ----------
     def procesar(self, frame):
         """Analiza un frame. Devuelve la lista de incidentes nuevos."""
@@ -922,6 +984,12 @@ class MonitorEPP:
         incidentes = self._depurar_invisibles()
 
         nuevos = {}
+        ancho = alto = 0
+        if self.zonas is not None:
+            # Las zonas se dibujan en relativo (0..1) y las cajas vienen en
+            # píxeles: hace falta el tamaño del frame para pasar de una a otra.
+            alto, ancho = frame.shape[:2]
+
         for p in personas:
             pid = p["id"]
             self.ultimo_visto[pid] = self.n_frames
@@ -932,17 +1000,34 @@ class MonitorEPP:
             # señal disponible; con 0 el incidente no significaria nada.
             confianza = max((e["conf"] for e in partes), default=p["conf"])
 
+            zona = None
+            if self.zonas is not None:
+                # El difuminado, en cambio, no depende de la zona: se aplica a
+                # todo el frame más abajo, sea quien sea y donde esté.
+                zona = zona_de(p["caja"], self.zonas, ancho, alto)
+                if zona is None:
+                    # Fuera de toda zona vigilada: ni estado ni aviso. Si tenía
+                    # el registro abierto, pasa a espera con su gracia.
+                    if pid in self.episodio:
+                        self._apartar_por_zona(pid, p["caja"])
+                    continue
+                episodio = self.episodio.get(pid)
+                if episodio is not None and episodio.get("zona") != zona:
+                    # Cruzó a otra zona: el episodio que traía sigue anclado al
+                    # suyo y queda en espera, y aquí se abre el de la nueva.
+                    self._apartar_por_zona(pid, p["caja"])
+
             if hay_seguimiento:
                 ventana = self.historial.setdefault(pid, deque(maxlen=VENTANA_SUAVIZADO))
                 ventana.append(estado)
                 if sum(1 for s in ventana if s == estado) >= MIN_FRAMES_PARA_ALERTAR:
                     self._registrar_cambio(pid, estado, confianza, nuevos,
-                                           p["caja"])
+                                           p["caja"], zona)
                 self.ultimo_estado[pid] = estado
             else:
                 # Sin IDs no hay identidad estable entre frames, pero el estado
                 # se sigue notificando una sola vez por cambio.
-                self._registrar_cambio(pid, estado, confianza, nuevos, p["caja"])
+                self._registrar_cambio(pid, estado, confianza, nuevos, p["caja"], zona)
 
         # El difuminado va antes de dibujar, para que la evidencia salga limpia.
         for p in personas:

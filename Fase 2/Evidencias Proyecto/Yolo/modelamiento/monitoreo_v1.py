@@ -12,21 +12,6 @@ El ciclo de vida del aviso de cada persona es el mismo que en el motor:
 - **FIN**: la persona se pone el EPP, o deja de verse hasta vencer la gracia.
   Se cierra el registro.
 
-Si aparece otra persona sin EPP mientras la anterior está en su ventana de
-ping, su INICIO se avisa igual de inmediato: el número de personas en
-infracción aumentó.
-
-La detección de `Person` parpadea (gafas, sombra, perfil) y ByteTrack reparte
-un id nuevo al volver, así que perder de vista a alguien no cierra su registro
-en el acto: el episodio queda en espera y se retoma si la persona reaparece
-con la misma falta y cerca de donde se fue. Solo se cierra al vencer
-`GRACIA_CIERRE_SEGUNDOS`. Así, alguien que nunca salió de la cámara no acaba
-partido en dos registros (un FIN y después un INICIO con otro id).
-
-Igual que el resto de los scripts de monitoreo, difumina los rostros con YuNet
-antes de dibujar, para que la evidencia salga anonimizada. Las funciones de
-difuminado y los valores de la gracia se toman del motor, para no duplicar la
-lógica ni dejarlos desincronizados.
 """
 
 import math
