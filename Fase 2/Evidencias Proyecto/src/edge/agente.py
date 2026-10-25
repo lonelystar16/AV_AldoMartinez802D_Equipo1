@@ -71,10 +71,10 @@ class MonitorZonal(MonitorEPP):
         self.zona.dibujar(frame)
         return incidentes
 
-    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None):
+    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None, zona=None):
         if caja is not None and not self.zona.contiene(caja, *self.tamano):
             estado = frozenset()  # fuera de la zona no hay nada que avisar
-        return super()._registrar_cambio(pid, estado, confianza, nuevos, caja)
+        return super()._registrar_cambio(pid, estado, confianza, nuevos, caja, zona)
 
 
 class ClienteBaliza:

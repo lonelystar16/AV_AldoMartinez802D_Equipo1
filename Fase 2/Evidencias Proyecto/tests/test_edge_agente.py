@@ -116,6 +116,9 @@ class ZonalPrueba(agente.MonitorZonal):
 
     def __init__(self, zona, escenas):
         self.zona, self.tamano = zona, (1, 1)
+        # No pasa por MonitorEPP.__init__: copiar aquí cada atributo nuevo del motor.
+        # zonas=None es el valor por defecto del motor (sin zonas propias).
+        self.camera_id, self.zonas = "cam-prueba", None
         self.escenas = iter(escenas)
         self.ping_segundos = 60
         self.historial, self.ultimo_estado, self.estado_confirmado = {}, {}, {}
