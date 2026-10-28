@@ -33,10 +33,13 @@ PROYECTO = Path(__file__).resolve().parents[2]  # Fase 2/Evidencias Proyecto
 sys.path.insert(0, str(PROYECTO / "Yolo" / "modelamiento"))
 
 from monitoreo_api import ReporteAPI  # noqa: E402
-from motor_cascovision import PING_SEGUNDOS, MonitorEPP  # noqa: E402
+from motor_cascovision import PING_SEGUNDOS, MonitorEPP, ZONA_POR_DEFECTO  # noqa: E402
 
 CONFIG_EJEMPLO = Path(__file__).with_name("config.example.json")
 TIMEOUT_CAMARA_MS = 5000
+# Un borde no puede colgarse del arranque por una API lenta: se le da poco
+# tiempo y se sigue con el config.json local.
+ESPERA_API_S = 2.0
 
 
 class Zona:
@@ -56,25 +59,34 @@ class Zona:
         contorno = (self.puntos * [ancho, alto]).astype(np.int32)
         cv2.polylines(frame, [contorno], True, (0, 165, 255), 2)
 
+    def como_zonas(self, identificador: str) -> list[dict]:
+        """La misma zona en el formato que entiende el motor (`zonas.py`).
+
+        La regla de "¿está dentro?" vive ahí y no aquí: el motor ancla cada
+        episodio a la zona en que nació y solo lo retoma si la persona vuelve
+        a la misma, que es lo que impide que un registro salga con un
+        `zone_id` que no le toca.
+        """
+        return [{"id": identificador,
+                 "poligono": [(float(x), float(y)) for x, y in self.puntos]}]
+
 
 class MonitorZonal(MonitorEPP):
     """El motor de EPP, limitado a la zona de riesgo de la cámara (RF-04)."""
 
-    def __init__(self, zona: Zona, **opciones):
+    def __init__(self, zona: Zona, zona_id: str = ZONA_POR_DEFECTO, **opciones):
+        # La limitación a la zona es nativa del motor: aquí solo se le pasa el
+        # polígono. Antes se repetía en `_registrar_cambio` anulando el estado,
+        # que además cerraba el episodio en el sitio en vez de aparcarlo con su
+        # gracia, y esa firma ya ni coincidía con la del motor.
+        opciones.setdefault("zonas", zona.como_zonas(zona_id))
         super().__init__(**opciones)
-        self.zona = zona
-        self.tamano = (1, 1)
+        self.poligono = zona
 
     def procesar(self, frame):
-        self.tamano = (frame.shape[1], frame.shape[0])
         incidentes = super().procesar(frame)
-        self.zona.dibujar(frame)
+        self.poligono.dibujar(frame)
         return incidentes
-
-    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None):
-        if caja is not None and not self.zona.contiene(caja, *self.tamano):
-            estado = frozenset()  # fuera de la zona no hay nada que avisar
-        return super()._registrar_cambio(pid, estado, confianza, nuevos, caja)
 
 
 class ClienteBaliza:
@@ -196,6 +208,90 @@ def guardar_cuadro(frame, carpeta: Path) -> None:
         pass  # el monitor lo está leyendo; se reemplaza en el próximo cuadro
 
 
+def _configuracion_remota(cfg: dict, token: str) -> dict | None:
+    """Descarga la configuración del agente desde `GET /edge/config` (I-04).
+
+    Se pregunta **una sola vez**, al arrancar: a un cuadro por segundo no
+    tiene sentido volver a preguntar, y un borde no puede colgarse del
+    arranque porque la API esté lenta — de ahí el mismo timeout corto que usa
+    la baliza.
+
+    Devuelve None si la API no responde o si no conoce la cámara que este
+    agente debe vigilar. En ese caso manda el JSON local, que es el respaldo:
+    un agente no puede depender de una API para arrancar.
+    """
+    url = f"{cfg['api'].rstrip('/')}/edge/config?camera_id={cfg['camera_id']}"
+    peticion = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {token}"}
+    )
+    try:
+        with urllib.request.urlopen(peticion, timeout=ESPERA_API_S) as respuesta:
+            datos = json.loads(respuesta.read() or b"{}")
+    except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
+        print(f"Aviso: la API no respondió GET /edge/config ({exc}); "
+              "manda el config.json local.")
+        return None
+    if datos.get("camera_id") != cfg["camera_id"]:
+        print(f"Aviso: la API no conoce la cámara {cfg['camera_id']}; "
+              "manda el config.json local.")
+        return None
+    return datos
+
+
+def aplicar_configuracion_remota(cfg: dict, remota: dict) -> None:
+    """Copia sobre `cfg` lo que la API sabe y el sitio local no decide.
+
+    La cámara, la zona y el polígono salen de la base, porque son datos que
+    administra el dashboard. En cambio la URL de la baliza **no se toca si el
+    config.json la trae**: es el ajuste fino del sitio (el puerto del
+    simulador, un túnel) y no lo debe pisar lo que diga la API.
+    """
+    zona = remota["zone"]
+    cfg["camera_id"] = remota["camera_id"]
+    cfg["zone_id"] = remota["zone_id"]
+    cfg["zone_name"] = zona["name"]
+    cfg["poligono"] = zona["polygon"]
+
+    baliza = remota.get("beacon")
+    if not baliza or cfg.get("baliza", {}).get("url"):
+        return
+    cfg.setdefault("baliza", {})
+    cfg["baliza"]["url"] = f"http://{baliza['ip']}"
+    cfg["baliza"].setdefault("duracion_s", baliza.get("duration_s", 10))
+
+
+def informar_baliza(api: str, beacon_id: str, token: str, baliza: "ClienteBaliza") -> None:
+    """Informa a la API el estado de su baliza zonal (I-05, RNF-14).
+
+    Es un parte, no una orden: si la API no responde, la baliza sigue
+    funcionando y lo único que pasa es que `GET /beacons` muestra un estado
+    viejo. Por eso los fallos aquí no se reportan ni frenan el análisis.
+    """
+    if not beacon_id:
+        # La API no tiene baliza para esta zona; no hay a quién informar.
+        return
+    cuerpo = json.dumps({
+        "online": baliza.en_linea,
+        # La batería la mide el firmware (tarea 4.7), que aún no existe.
+        "battery_pct": None,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }).encode("utf-8")
+    peticion = urllib.request.Request(
+        f"{api.rstrip('/')}/edge/beacons/{beacon_id}/status",
+        data=cuerpo,
+        method="PUT",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(peticion, timeout=ESPERA_API_S) as respuesta:
+            respuesta.read()
+    except (urllib.error.URLError, OSError):
+        pass
+
+
 def main() -> None:
     opciones = argparse.ArgumentParser(description="Agente Edge de CascoVision")
     opciones.add_argument("--config", type=Path, default=CONFIG_EJEMPLO)
@@ -209,10 +305,20 @@ def main() -> None:
     args = opciones.parse_args()
 
     cfg = json.loads(args.config.read_text(encoding="utf-8"))
+    # `api` y `carpeta_datos` son de esta máquina y tienen que quedar leídos
+    # del JSON: sin la URL de la API no se le puede preguntar nada. La cámara,
+    # la zona y el polígono, en cambio, los administra el dashboard y salen
+    # de la API, con el JSON local como respaldo (4.15).
+    remota = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
+    if remota:
+        aplicar_configuracion_remota(cfg, remota)
+        print(f"Configuración desde la API · zona {cfg['zone_name']}")
+    # Sin beacon_id no hay a quién informar: la API puede no tener baliza para
+    # esta zona, y eso no impide que el agente trabaje.
+    beacon_id = (remota.get("beacon") or {}).get("id") if remota else None
     # La URL de la cámara puede traer credenciales: mejor por variable de entorno.
     fuente = str(args.fuente or os.getenv("CAMARA_FUENTE") or cfg["fuente"])
     datos = PROYECTO / cfg.get("carpeta_datos", "edge-datos")
-    # shortcut: la configuración sale de un JSON local; pasa a GET /edge/config cuando exista (4.15).
     baliza = ClienteBaliza(cfg["baliza"]["url"], os.getenv("BALIZA_TOKEN", ""),
                            cfg["zone_id"], cfg["zone_name"], cfg["baliza"].get("duracion_s", 10))
     reporte = ReporteAsincrono(ReporteAPI(cfg["api"], archivo_cola=datos / "cola_incidentes.jsonl"))
@@ -229,7 +335,8 @@ def main() -> None:
               f"persona {incidente['person_track_id']} · baliza {b['status']}"
               + (f" en {b['latency_ms']} ms" if b["latency_ms"] is not None else ""))
 
-    monitor = MonitorZonal(Zona(cfg.get("poligono")), ruta_modelo=args.modelo,
+    monitor = MonitorZonal(Zona(cfg.get("poligono")), zona_id=cfg["zone_id"],
+                           ruta_modelo=args.modelo,
                            carpeta_evidencia=PROYECTO / "incidents",
                            al_registrar=al_registrar, ping_segundos=args.ping)
 
@@ -270,6 +377,8 @@ def main() -> None:
                 ultimo_latido = ahora
                 if baliza.revisar():
                     print(f"  Baliza {'en línea' if baliza.en_linea else 'FUERA DE LÍNEA'}")
+                informar_baliza(cfg["api"], beacon_id,
+                                os.getenv("EDGE_API_TOKEN", ""), baliza)
 
             monitor.procesar(frame)
             guardar_cuadro(frame, datos)
