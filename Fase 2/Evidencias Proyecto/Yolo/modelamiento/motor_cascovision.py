@@ -35,11 +35,17 @@ def buscar_raiz_proyecto(inicio: Path) -> Path:
 
 RAIZ = buscar_raiz_proyecto(Path(__file__).resolve().parent)
 
-RUTA_MODELO_RELATIVA = (
-    Path("Fase 2") / "Evidencias Proyecto" / "models" / "cascovision_yolo26s.pt"
-)
-_CANDIDATOS = [RAIZ / RUTA_MODELO_RELATIVA, Path.cwd() / RUTA_MODELO_RELATIVA]
-RUTA_MODELO_EPP = next((p for p in _CANDIDATOS if p.is_file()), _CANDIDATOS[0])
+# El .onnx va primero: ya está exportado (tarea 4.3) y con él el agente corre
+# sin PyTorch en CPU, que es lo que permite aligerar la imagen de Docker. El
+# .pt sigue siendo el origen, así que es el respaldo si el ONNX no está.
+_RUTA_CARPETA_MODELO = Path("Fase 2") / "Evidencias Proyecto" / "models"
+_NOMBRES_MODELO = ("cascovision_yolo26s.onnx", "cascovision_yolo26s.pt")
+# Exportar y evaluar parten siempre del .pt, nunca del ONNX ya exportado.
+RUTA_MODELO_PT = RAIZ / _RUTA_CARPETA_MODELO / "cascovision_yolo26s.pt"
+_CANDIDATOS = [raiz / _RUTA_CARPETA_MODELO / nombre
+               for raiz in (RAIZ, Path.cwd())
+               for nombre in _NOMBRES_MODELO]
+RUTA_MODELO_EPP = next((p for p in _CANDIDATOS if p.is_file()), RUTA_MODELO_PT)
 
 # Detector de rostros YuNet. Es una red neuronal, no una cascada Haar: detecta
 # frontales y de perfil, y entrega las coordenadas de ambos ojos como landmarks.
@@ -77,6 +83,10 @@ CLASES_PERMITIDAS = {"Person", "helmet", "no_helmet", "no_vest", "vest"}
 CLASES_CABEZA = {"helmet", "no_helmet"}
 
 SOLAPAMIENTO_MIN = 0.35
+
+# Fracción de la caja 'Person' que puede estar cubierta por el propio EPP
+# antes de sospechar que esa caja no describe a una persona. Ver `parece_cuerpo`.
+UMBRAL_EPP_CUBRE_PERSONA = 0.7
 
 VENTANA_SUAVIZADO = 5
 MIN_FRAMES_PARA_ALERTAR = 2
@@ -286,6 +296,30 @@ def evaluar_persona(parte):
     elif chaleco == "no_vest":
         estados.append("sin_chaleco")
     return frozenset(estados)
+
+
+def parece_cuerpo(persona, partes):
+    """¿La caja 'Person' contiene a un cuerpo, o es solo el EPP cajado dos veces?
+
+    El detector no tiene clases de cabeza ni de torso, así que un chaleco
+    suelto en el piso o colgado de la pared puede salir cajado como 'Person'
+    y con su propio 'vest' o 'no_vest' encima. Esa caja no describe a nadie,
+    y abriría un incidente por cada chaleco abandonado de la obra.
+
+    Se mide qué fracción de la PERSONA cubre el EPP, y no al revés. El orden
+    importa y es fácil equivocarse: un chaleco siempre está entero dentro de
+    su caja 'Person', así que medido del otro sentido daría ~1.0 también en
+    una persona real y la regla descartaría a todo el mundo. En una persona
+    de verdad el chaleco ocupa el torso, alrededor de un 40 %; en el fantasma
+    ocupa la caja entera.
+    """
+    if not partes:
+        # Sin EPP no hay con qué acusar a la caja de ser el propio EPP, y el
+        # hecho de no detectar nada es en sí mismo noticia
+        # (ver POLITICA_SIN_DATOS). El fantasma va siempre acompañado de su
+        # EPP, así que este caso no lo deja pasar por accidente.
+        return True
+    return max(solapamiento(persona["caja"], e["caja"]) for e in partes) < UMBRAL_EPP_CUBRE_PERSONA
 
 
 def confirmar_infracciones(estado):
@@ -981,6 +1015,15 @@ class MonitorEPP:
         self.n_frames += 1
         personas, epps, hay_seguimiento = self._detectar(frame)
 
+        # El EPP se asocia a cada persona una sola vez, y lo consumen tanto la
+        # regla anti-fantasma como la evaluación de la infracción.
+        partes_por_pid = {p["id"]: self._partes_de(epps, p) for p in personas}
+        # Cajas que no parecen cuerpos: un chaleco cajado como 'Person'. Se
+        # siguen difuminando, pero no se vigilan ni se les abren registros,
+        # porque no hay nadie detrás.
+        vigiladas = [p for p in personas
+                     if parece_cuerpo(p, partes_por_pid[p["id"]])]
+
         # Se ejecuta antes de mirar a las personas del frame: los episodios de
         # quienes dejaron de verse se apartan (o se cierran si se agoto la
         # gracia) en el mismo frame en que se pierden de vista.
@@ -993,11 +1036,11 @@ class MonitorEPP:
             # píxeles: hace falta el tamaño del frame para pasar de una a otra.
             alto, ancho = frame.shape[:2]
 
-        for p in personas:
+        for p in vigiladas:
             pid = p["id"]
             self.ultimo_visto[pid] = self.n_frames
             self.caja_vista[pid] = p["caja"]
-            partes = self._partes_de(epps, p)
+            partes = partes_por_pid[pid]
             estado = evaluar_persona(partes)
             # Si no hay EPP detectado, la confianza de la persona es la unica
             # señal disponible; con 0 el incidente no significaria nada.
@@ -1033,17 +1076,22 @@ class MonitorEPP:
                 self._registrar_cambio(pid, estado, confianza, nuevos, p["caja"], zona)
 
         # El difuminado va antes de dibujar, para que la evidencia salga limpia.
+        # Va sobre las cajas SIN FILTRAR: la regla anti-fantasma decide a quién
+        # se vigila, no a quién se difumina. El anonimato no admite excepciones
+        # ni descartes.
         for p in personas:
             cabezas = [e for e in epps if e["nombre"] in CLASES_CABEZA]
             self.difumar_rostros(frame, p["caja"], cabezas)
-        if not personas and epps:
-            # YOLO no acerto la clase 'Person' (gafas, sombra, perfil) y la
-            # persona sigue en el encuadre. Sin su caja no hay donde recortar,
-            # asi que se difumina el frame entero: el anonimato no depende de
-            # que el detector acierte.
+        if not vigiladas and epps:
+            # No hay nadie creíble a quien difuminar: o YOLO no acertó la clase
+            # 'Person' (gafas, sombra, perfil) y la persona sigue en el encuadre,
+            # o todo lo que se ve es un EPP suelto. Sin una caja de persona
+            # donde recortar, se difumina el frame entero.
             difumar_roi(self.detector, frame)
 
-        for p in personas:
+        # Solo se enmarca y se etiqueta a quien se vigila: la caja de un
+        # chaleco cajado como persona no debe salir con etiqueta de alerta.
+        for p in vigiladas:
             pid = p["id"]
             x1, y1, x2, y2 = p["caja"]
             cv2.rectangle(frame, (x1, y1), (x2, y2), COLORES["Person"], 1)
@@ -1067,7 +1115,7 @@ class MonitorEPP:
         ahora = time.time()
         self.fps = 1.0 / max(ahora - self.t_prev, 1e-6)
         self.t_prev = ahora
-        texto(frame, f"Personas: {len(personas)} | FPS: {self.fps:.1f}",
+        texto(frame, f"Personas: {len(vigiladas)} | FPS: {self.fps:.1f}",
               (10, 25), 0.6, COLOR_TEXTO)
 
         # La evidencia se genera con las marcas ya dibujadas.

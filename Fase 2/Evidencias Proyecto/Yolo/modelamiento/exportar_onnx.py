@@ -17,7 +17,7 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from motor_cascovision import RUTA_MODELO_EPP, MonitorEPP
+from motor_cascovision import RUTA_MODELO_PT, MonitorEPP
 
 IMAGEN = Path(__file__).with_name("testeo.jpg")
 
@@ -40,12 +40,13 @@ def main() -> None:
     opciones.add_argument("--repeticiones", type=int, default=50)
     args = opciones.parse_args()
 
-    ruta_onnx = Path(YOLO(str(RUTA_MODELO_EPP)).export(format="onnx", imgsz=640, simplify=True))
+    # Se exporta siempre desde el .pt: el .onnx ya exportado no es origen de nada.
+    ruta_onnx = Path(YOLO(str(RUTA_MODELO_PT)).export(format="onnx", imgsz=640, simplify=True))
     print(f"ONNX: {ruta_onnx} ({ruta_onnx.stat().st_size / 1e6:.1f} MB)")
 
     cuadro = cv2.resize(cv2.imread(str(IMAGEN)), (640, 480))
     print(f"CPU: {platform.processor() or platform.machine()} · {args.repeticiones} repeticiones")
-    for ruta in (RUTA_MODELO_EPP, ruta_onnx):
+    for ruta in (RUTA_MODELO_PT, ruta_onnx):
         modelo = YOLO(str(ruta), task="detect")
         clases = sorted({modelo.names[int(c)] for c in modelo.predict(cuadro, verbose=False)[0].boxes.cls})
         inferencia = medir(lambda: modelo.predict(cuadro, verbose=False), args.repeticiones)

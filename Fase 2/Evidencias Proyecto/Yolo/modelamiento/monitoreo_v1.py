@@ -23,6 +23,7 @@ from ultralytics import YOLO
 from motor_cascovision import (
     FRAME_PARA_DESCARTAR,
     GRACIA_CIERRE_SEGUNDOS,
+    RUTA_MODELO_EPP,
     RUTA_YUNET,
     alcance_reaparicion,
     cargar_yunet,
@@ -32,7 +33,8 @@ from motor_cascovision import (
 )
 
 # ==================== CONFIGURACIÓN ====================
-RUTA_MODELO_EPP = r"Fase 2\Evidencias Proyecto\models\cascovision_yolo26s.pt"
+# La ruta del modelo la resuelve el motor: prefiere el .onnx exportado y cae
+# al .pt si no está. Escrita a mano aquí, además, dependía del CWD.
 FUENTE_VIDEO = 0
 CONF_MIN = 0.20
 CLASE_PERSONA = "Person"

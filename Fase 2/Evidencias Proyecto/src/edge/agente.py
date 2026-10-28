@@ -33,7 +33,7 @@ PROYECTO = Path(__file__).resolve().parents[2]  # Fase 2/Evidencias Proyecto
 sys.path.insert(0, str(PROYECTO / "Yolo" / "modelamiento"))
 
 from monitoreo_api import ReporteAPI  # noqa: E402
-from motor_cascovision import PING_SEGUNDOS, MonitorEPP  # noqa: E402
+from motor_cascovision import PING_SEGUNDOS, MonitorEPP, ZONA_POR_DEFECTO  # noqa: E402
 
 CONFIG_EJEMPLO = Path(__file__).with_name("config.example.json")
 TIMEOUT_CAMARA_MS = 5000
@@ -56,25 +56,34 @@ class Zona:
         contorno = (self.puntos * [ancho, alto]).astype(np.int32)
         cv2.polylines(frame, [contorno], True, (0, 165, 255), 2)
 
+    def como_zonas(self, identificador: str) -> list[dict]:
+        """La misma zona en el formato que entiende el motor (`zonas.py`).
+
+        La regla de "¿está dentro?" vive ahí y no aquí: el motor ancla cada
+        episodio a la zona en que nació y solo lo retoma si la persona vuelve
+        a la misma, que es lo que impide que un registro salga con un
+        `zone_id` que no le toca.
+        """
+        return [{"id": identificador,
+                 "poligono": [(float(x), float(y)) for x, y in self.puntos]}]
+
 
 class MonitorZonal(MonitorEPP):
     """El motor de EPP, limitado a la zona de riesgo de la cámara (RF-04)."""
 
-    def __init__(self, zona: Zona, **opciones):
+    def __init__(self, zona: Zona, zona_id: str = ZONA_POR_DEFECTO, **opciones):
+        # La limitación a la zona es nativa del motor: aquí solo se le pasa el
+        # polígono. Antes se repetía en `_registrar_cambio` anulando el estado,
+        # que además cerraba el episodio en el sitio en vez de aparcarlo con su
+        # gracia, y esa firma ya ni coincidía con la del motor.
+        opciones.setdefault("zonas", zona.como_zonas(zona_id))
         super().__init__(**opciones)
-        self.zona = zona
-        self.tamano = (1, 1)
+        self.poligono = zona
 
     def procesar(self, frame):
-        self.tamano = (frame.shape[1], frame.shape[0])
         incidentes = super().procesar(frame)
-        self.zona.dibujar(frame)
+        self.poligono.dibujar(frame)
         return incidentes
-
-    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None):
-        if caja is not None and not self.zona.contiene(caja, *self.tamano):
-            estado = frozenset()  # fuera de la zona no hay nada que avisar
-        return super()._registrar_cambio(pid, estado, confianza, nuevos, caja)
 
 
 class ClienteBaliza:
@@ -229,7 +238,8 @@ def main() -> None:
               f"persona {incidente['person_track_id']} · baliza {b['status']}"
               + (f" en {b['latency_ms']} ms" if b["latency_ms"] is not None else ""))
 
-    monitor = MonitorZonal(Zona(cfg.get("poligono")), ruta_modelo=args.modelo,
+    monitor = MonitorZonal(Zona(cfg.get("poligono")), zona_id=cfg["zone_id"],
+                           ruta_modelo=args.modelo,
                            carpeta_evidencia=PROYECTO / "incidents",
                            al_registrar=al_registrar, ping_segundos=args.ping)
 
