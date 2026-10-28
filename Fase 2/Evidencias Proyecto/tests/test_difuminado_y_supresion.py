@@ -317,7 +317,10 @@ class MonitorFalso:
         self.n_frames = 0
 
     _registrar_cambio = mc.MonitorEPP._registrar_cambio
+    _verificar_cumplimiento = mc.MonitorEPP._verificar_cumplimiento
     _retomar_episodio = mc.MonitorEPP._retomar_episodio
+    _retomar_de_espera = mc.MonitorEPP._retomar_de_espera
+    _reanimar_episodio = mc.MonitorEPP._reanimar_episodio
     _controlar_ping = mc.MonitorEPP._controlar_ping
     _depurar_invisibles = mc.MonitorEPP._depurar_invisibles
     _guardar_en_espera = mc.MonitorEPP._guardar_en_espera
@@ -415,16 +418,55 @@ def test_otra_persona_sin_epp_se_avisa_inmediatamente() -> None:
     assert nuevos[2][2] == "inicio"
 
 
-def test_cumplimiento_cierra_el_registro() -> None:
-    """Cuando la persona cumple se avisa el fin del registro."""
+def test_cumplimiento_no_cierra_en_el_primer_frame() -> None:
+    """Cerrar en el primer frame conforme partiría el caso en dos.
+
+    El detector parpadea: si se diera por buena la mejora al instante, el
+    segundo fallo abriría un registro nuevo para la misma persona.
+    """
     monitor = MonitorFalso()
     monitor._registrar_cambio(1, frozenset({"sin_casco"}), 0.9, {})
 
     nuevos = {}
     evento = monitor._registrar_cambio(1, frozenset(), 0.9, nuevos)
 
+    assert evento is None
+    assert nuevos == {}
+    # El episodio sigue abierto, esperando a que la mejora se sostenga.
+    assert 1 in monitor.episodio
+    assert "cumple_desde" in monitor.episodio[1]
+
+
+def test_cumplimiento_sostenido_cierra_el_registro() -> None:
+    """Cumplida la ventana de verificación, recién ahí se cierra el registro."""
+    monitor = MonitorFalso()
+    monitor._registrar_cambio(1, frozenset({"sin_casco"}), 0.9, {})
+    monitor._registrar_cambio(1, frozenset(), 0.9, {})
+
+    # Se hace pasar la ventana igual que se hace pasar el intervalo del ping.
+    monitor.episodio[1]["cumple_desde"] -= mc.GRACIA_VERIFICACION_SEGUNDOS
+
+    nuevos = {}
+    evento = monitor._registrar_cambio(1, frozenset(), 0.9, nuevos)
+
     assert evento == "fin"
     assert nuevos[1][2] == "fin"
+
+
+def test_reincidir_dentro_de_la_ventana_no_cierra_nada() -> None:
+    """Un parpadeo no cierra el caso ni abre otro: el episodio sobrevive."""
+    monitor = MonitorFalso()
+    monitor._registrar_cambio(1, frozenset({"sin_casco"}), 0.9, {})
+    monitor._registrar_cambio(1, frozenset(), 0.9, {})
+
+    # Vuelve a verse sin EPP, todavía dentro de la ventana de verificación.
+    nuevos = {}
+    evento = monitor._registrar_cambio(1, frozenset({"sin_casco"}), 0.9, nuevos)
+
+    assert evento is None, "no debe ni cerrar ni abrir"
+    assert nuevos == {}
+    assert 1 in monitor.episodio, "es el mismo episodio, no un registro nuevo"
+    assert "cumple_desde" not in monitor.episodio[1], "se cancela el cierre"
 
 
 def test_cumplimiento_sin_registro_previo_no_avisa() -> None:
@@ -435,6 +477,65 @@ def test_cumplimiento_sin_registro_previo_no_avisa() -> None:
 
     assert evento is None
     assert nuevos == {}
+
+
+# ---------- una sola persona, un solo registro ----------
+
+def _persona_infringiendo(monitor, pid, caja):
+    """Abre el episodio de un pid y deja sus mapas como en producción."""
+    monitor._registrar_cambio(pid, frozenset({"sin_casco"}), 0.9, {}, caja=caja)
+    monitor.caja_vista[pid] = caja
+    monitor.violacion_confirmada[pid] = mc.clave_violacion({"sin_casco"})
+
+
+def test_hueco_corto_con_otro_id_no_abre_un_inicio_nuevo() -> None:
+    """La persona se difumina unos segundos y ByteTrack le reparte otro id.
+
+    El episodio anterior sigue vivo: el hueco es más corto que
+    FRAME_PARA_DESCARTAR, así que nunca llegó a espera. Sin reanimarlo se
+    abriría un INICIO mientras el viejo acaba cerrando solo, y la misma
+    persona quedaría en dos registros.
+    """
+    monitor = MonitorFalso()
+    _persona_infringiendo(monitor, 7, (100, 50, 200, 300))
+    episodio = monitor.episodio[7]
+
+    nuevos = {}
+    evento = monitor._registrar_cambio(9, frozenset({"sin_casco"}), 0.9, nuevos,
+                                       caja=(105, 55, 205, 305), vistos={9})
+
+    assert monitor.episodio[9] is episodio, "es el mismo episodio, con otro id"
+    assert 7 not in monitor.episodio, "el pid viejo no debe cerrar después"
+    assert evento != "inicio", "no debe abrir un segundo registro"
+
+
+def test_dos_personas_juntas_cada_un_registro() -> None:
+    """Un obrero parado al lado, con la misma falta, no le roba el registro."""
+    monitor = MonitorFalso()
+    _persona_infringiendo(monitor, 7, (100, 50, 200, 300))
+    episodio = monitor.episodio[7]
+
+    nuevos = {}
+    monitor._registrar_cambio(9, frozenset({"sin_casco"}), 0.9, nuevos,
+                              caja=(220, 50, 320, 300), vistos={7, 9})
+
+    assert nuevos[9][2] == "inicio", "debe abrir su propio registro"
+    assert monitor.episodio[9] is not episodio
+    assert 7 in monitor.episodio, "al de al lado no se le toca nada"
+
+
+def test_reanimar_exige_saber_quien_esta_en_el_cuadro() -> None:
+    """Sin `vistos` no se puede afirmar que el episodio sea de esa persona."""
+    monitor = MonitorFalso()
+    _persona_infringiendo(monitor, 7, (100, 50, 200, 300))
+    episodio = monitor.episodio[7]
+
+    nuevos = {}
+    monitor._registrar_cambio(9, frozenset({"sin_casco"}), 0.9, nuevos,
+                              caja=(105, 55, 205, 305))
+
+    assert nuevos[9][2] == "inicio"
+    assert monitor.episodio[9] is not episodio
 
 
 def test_reincidir_tras_cumplir_abre_un_registro_nuevo() -> None:
@@ -832,3 +933,27 @@ def test_un_parpadeo_no_parte_la_infraccion_en_dos_registros() -> None:
     assert [a["event"] for a in motor.avisos] == ["inicio"]
     assert motor.en_espera == []
     assert 21 in motor.episodio
+
+
+def test_hueco_corto_de_difuminado_no_abre_un_segundo_registro() -> None:
+    """El hueco que la gracia larga no cubría: 1 a 5 frames, no 50.
+
+    A un cuadro por segundo eso es menos de FRAME_PARA_DESCARTAR, así que el
+    episodio anterior sigue vivo y nunca llega a espera. Sin reanimarlo, el
+    id nuevo abriría un INICIO mientras el viejo acabara cerrando solo, y una
+    sola persona quedaria en dos registros.
+    """
+    assert 3 < mc.FRAME_PARA_DESCARTAR, "el hueco tiene que ser corto de verdad"
+    con_persona = ([_persona(3)], _sin_epp(), True)
+    sin_persona = ([], _sin_epp(), True)
+    vuelve = ([_persona(21, (105, 55, 205, 305))], _sin_epp(), True)
+    escenas = [con_persona] * 3 + [sin_persona] * 3 + [vuelve] * 3
+    motor = MotorPrueba(escenas)
+
+    for _ in escenas:
+        motor.procesar(_frames_motor())
+
+    assert [a["event"] for a in motor.avisos] == ["inicio"], "un solo registro"
+    assert motor.en_espera == []
+    assert 21 in motor.episodio
+    assert 3 not in motor.episodio, "el id viejo no debe quedar para cerrar solo"
