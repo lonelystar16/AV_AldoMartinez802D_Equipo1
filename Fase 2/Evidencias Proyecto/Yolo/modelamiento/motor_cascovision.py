@@ -35,11 +35,17 @@ def buscar_raiz_proyecto(inicio: Path) -> Path:
 
 RAIZ = buscar_raiz_proyecto(Path(__file__).resolve().parent)
 
-RUTA_MODELO_RELATIVA = (
-    Path("Fase 2") / "Evidencias Proyecto" / "models" / "cascovision_yolo26s.pt"
-)
-_CANDIDATOS = [RAIZ / RUTA_MODELO_RELATIVA, Path.cwd() / RUTA_MODELO_RELATIVA]
-RUTA_MODELO_EPP = next((p for p in _CANDIDATOS if p.is_file()), _CANDIDATOS[0])
+# El .onnx va primero: ya está exportado (tarea 4.3) y con él el agente corre
+# sin PyTorch en CPU, que es lo que permite aligerar la imagen de Docker. El
+# .pt sigue siendo el origen, así que es el respaldo si el ONNX no está.
+_RUTA_CARPETA_MODELO = Path("Fase 2") / "Evidencias Proyecto" / "models"
+_NOMBRES_MODELO = ("cascovision_yolo26s.onnx", "cascovision_yolo26s.pt")
+# Exportar y evaluar parten siempre del .pt, nunca del ONNX ya exportado.
+RUTA_MODELO_PT = RAIZ / _RUTA_CARPETA_MODELO / "cascovision_yolo26s.pt"
+_CANDIDATOS = [raiz / _RUTA_CARPETA_MODELO / nombre
+               for raiz in (RAIZ, Path.cwd())
+               for nombre in _NOMBRES_MODELO]
+RUTA_MODELO_EPP = next((p for p in _CANDIDATOS if p.is_file()), RUTA_MODELO_PT)
 
 # Detector de rostros YuNet. Es una red neuronal, no una cascada Haar: detecta
 # frontales y de perfil, y entrega las coordenadas de ambos ojos como landmarks.
@@ -78,6 +84,10 @@ CLASES_CABEZA = {"helmet", "no_helmet"}
 
 SOLAPAMIENTO_MIN = 0.35
 
+# Fracción de la caja 'Person' que puede estar cubierta por el propio EPP
+# antes de sospechar que esa caja no describe a una persona. Ver `parece_cuerpo`.
+UMBRAL_EPP_CUBRE_PERSONA = 0.7
+
 VENTANA_SUAVIZADO = 5
 MIN_FRAMES_PARA_ALERTAR = 2
 FRAME_PARA_DESCARTAR = 45
@@ -88,12 +98,24 @@ FRAME_PARA_DESCARTAR = 45
 # segundos despues un INICIO con otro numero. El episodio se pone en espera en
 # vez de cerrarse, y se retoma si la persona reaparece con la misma infraccion.
 # Solo se cierra de verdad cuando la espera supera este tiempo.
-GRACIA_CIERRE_SEGUNDOS = 15
+GRACIA_CIERRE_SEGUNDOS = 30
+
+# Lo mismo vale cuando la persona deja de infringir poniendose el casco o el
+# chaleco: cerrar en el primer frame conforme partiria el caso en dos si el
+# detector parpadea. Antes de dar la mejora por buena se aguanta este tiempo
+# viendo si se sostiene; si dentro de el vuelve a infringir, no se cerro nada.
+GRACIA_VERIFICACION_SEGUNDOS = 30
 
 # Distancia maxima a la que se admite que reaparezca la misma persona, medida
 # en cajas de la propia persona. Evita enganchar el episodio de alguien que se
 # fue a una persona distinta que entra por otro lado del encuadre.
 GRACIA_CIERRE_CAJAS = 2.0
+
+# Mapas que recuerdan a una persona por su id de ByteTrack. Se limpian juntos
+# cada vez que un episodio cambia de manos de un pid a otro, para que el id
+# viejo no quede con memoria de una persona que ya no es suya.
+MEMORIA_PID = ("ultimo_visto", "historial", "ultimo_estado",
+               "estado_confirmado", "violacion_confirmada", "caja_vista")
 
 # --- Ciclo de vida del aviso de una persona sin EPP ---
 #
@@ -286,6 +308,30 @@ def evaluar_persona(parte):
     elif chaleco == "no_vest":
         estados.append("sin_chaleco")
     return frozenset(estados)
+
+
+def parece_cuerpo(persona, partes):
+    """¿La caja 'Person' contiene a un cuerpo, o es solo el EPP cajado dos veces?
+
+    El detector no tiene clases de cabeza ni de torso, así que un chaleco
+    suelto en el piso o colgado de la pared puede salir cajado como 'Person'
+    y con su propio 'vest' o 'no_vest' encima. Esa caja no describe a nadie,
+    y abriría un incidente por cada chaleco abandonado de la obra.
+
+    Se mide qué fracción de la PERSONA cubre el EPP, y no al revés. El orden
+    importa y es fácil equivocarse: un chaleco siempre está entero dentro de
+    su caja 'Person', así que medido del otro sentido daría ~1.0 también en
+    una persona real y la regla descartaría a todo el mundo. En una persona
+    de verdad el chaleco ocupa el torso, alrededor de un 40 %; en el fantasma
+    ocupa la caja entera.
+    """
+    if not partes:
+        # Sin EPP no hay con qué acusar a la caja de ser el propio EPP, y el
+        # hecho de no detectar nada es en sí mismo noticia
+        # (ver POLITICA_SIN_DATOS). El fantasma va siempre acompañado de su
+        # EPP, así que este caso no lo deja pasar por accidente.
+        return True
+    return max(solapamiento(persona["caja"], e["caja"]) for e in partes) < UMBRAL_EPP_CUBRE_PERSONA
 
 
 def confirmar_infracciones(estado):
@@ -673,14 +719,16 @@ class MonitorEPP:
             partes.append(e)
         return partes
 
-    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None, zona=None):
+    def _registrar_cambio(self, pid, estado, confianza, nuevos, caja=None,
+                          zona=None, vistos=None):
         """Gestiona el ciclo de vida del aviso de una persona.
 
         Decide que hacer con el estado confirmado de la persona, aplicando la
         politica vigente (`confirmar_infracciones`):
 
-        - Sin infraccion notificable: si habia un episodio en curso, se cierra
-          (FIN) para que conste cuando termino.
+        - Sin infraccion notificable: el episodio en curso se cierra (FIN)
+          despues de una ventana de verificacion, no en el primer frame
+          conforme.
         - Con infraccion y sin episodio: se abre (INICIO) y se notifica de
           inmediato, sin esperar el ping de nadie.
         - Con infraccion y episodio en curso: si vencio el intervalo de ping,
@@ -692,6 +740,8 @@ class MonitorEPP:
         'zona' es el id de la zona de riesgo en la que esta parado, o None si
         no hay zonas configuradas: con el que nace el episodio es el que se
         reporta como zone_id.
+        'vistos' son los pid que aparecen en este frame; sirve para no
+        reanimar el episodio de alguien que sigue a la vista.
 
         Devuelve el tipo de evento generado: "inicio", "ping", "fin" o None.
         """
@@ -700,15 +750,8 @@ class MonitorEPP:
         ahora = time.monotonic()
 
         if not clave:
-            # Cumplimiento (o estado que la politica no notifica): el episodio
-            # en curso se cierra despues, en _registrar, para conservar el
-            # incidente ya registrado y poder reenviarlo.
-            self.violacion_confirmada[pid] = clave
-            self.estado_confirmado[pid] = estado
-            if pid in self.episodio:
-                nuevos[pid] = (notificables, confianza, "fin")
-                return "fin"
-            return None
+            return self._verificar_cumplimiento(pid, estado, confianza,
+                                                nuevos, ahora)
 
         desconocida = self.violacion_confirmada.get(pid) is None
         if self.violacion_confirmada.get(pid) != clave:
@@ -717,7 +760,8 @@ class MonitorEPP:
             self.episodio.pop(pid, None)
             self.violacion_confirmada[pid] = clave
             self.estado_confirmado[pid] = estado
-            if desconocida and self._retomar_episodio(pid, clave, caja, zona):
+            if desconocida and self._retomar_episodio(pid, clave, caja, zona,
+                                                      vistos):
                 # No es nadie nuevo: es a quien el detector dejo de ver y que
                 # ahora vuelve, a veces con otro id de ByteTrack. Sigue siendo
                 # el mismo registro, asi que no se abre un INICIO; pasa
@@ -739,23 +783,74 @@ class MonitorEPP:
             nuevos[pid] = (notificables, confianza, "inicio")
             return "inicio"
 
+        # Volvio a infringir: se cancela la ventana de verificacion que
+        # estuviera abierta y el episodio sigue tal cual.
+        episodio.pop("cumple_desde", None)
+
         return self._controlar_ping(pid, nuevos, confianza, ahora)
 
-    def _retomar_episodio(self, pid, clave, caja=None, zona=None):
-        """Retoma un episodio en espera que tenga la misma infraccion y zona.
+    def _verificar_cumplimiento(self, pid, estado, confianza, nuevos, ahora):
+        """Aguanta una ventana antes de dar por terminada una mejora.
 
-        Cuando la deteccion de 'Person' parpadea (gafas, sombra, perfil), la
-        persona se pierde de vista y ByteTrack le asigna otro id al volver.
-        Sin esto, cada parpadeo cerraria el registro con un FIN y abria otro
-        con el mismo contenido: una persona que nunca salio de la camara
-        quedaria partida en varias infracciones seguidas.
+        Cerrar en el primer frame conforme repite el problema del parpadeo
+        del detector, pero al reves: se cierra el caso y unos segundos
+        despues se abre otro nuevo con el mismo contenido. La persona ya no
+        esta sin EPP, asi que dentro de la ventana no se emite ni PING ni FIN
+        (un ping diria "sigue sin EPP" a quien acaba de ponerse el casco); si
+        el cumplimiento se sostiene, recien ahi se cierra.
+        """
+        self.estado_confirmado[pid] = estado
+        episodio = self.episodio.get(pid)
+        if episodio is None:
+            # Sin episodio no hay nada que verificar ni que cerrar. Aqui si se
+            # limpia la violacion: no hay registro abierto que proteger.
+            self.violacion_confirmada[pid] = clave_violacion(
+                confirmar_infracciones(estado))
+            return None
 
-        Solo se retoma si ademas reaparece mas o menos donde se fue, para que
-        una persona distinta que entra por otro lado del encuadre no se
-        apropie del episodio de la anterior. Devuelve True si lo retomo.
+        cumple_desde = episodio.get("cumple_desde")
+        if cumple_desde is None:
+            episodio["cumple_desde"] = ahora
+            return None
+        if ahora - cumple_desde < GRACIA_VERIFICACION_SEGUNDOS:
+            # Nota: se deja `violacion_confirmada` con la infraccion anterior.
+            # Si el detector parpadea y la vuelve a ver sin EPP, al no estar
+            # "olvidada" se toma por la misma persona y el episodio sobrevive.
+            return None
+
+        self.violacion_confirmada[pid] = clave_violacion(
+            confirmar_infracciones(estado))
+        nuevos[pid] = (confirmar_infracciones(estado), confianza, "fin")
+        return "fin"
+
+    def _retomar_episodio(self, pid, clave, caja=None, zona=None, vistos=None):
+        """Retoma un episodio que tenga la misma infraccion y zona.
+
+        Busca en los dos lugares donde puede estar el de una persona que se
+        perdio de vista:
+
+        - En `en_espera`, para quien estuvo invisible el tiempo suficiente
+          para que el motor la apartara.
+        - **Abierto bajo otro pid**, para el hueco corto del difuminado. Con
+          la camara a un cuadro por segundo, uno a cinco segundos sin ver a la
+          persona son uno a cinco frames: menos de FRAME_PARA_DESCARTAR, asi
+          que el episodio anterior sigue vivo y nunca llego a `en_espera`.
+          Sin este camino, cada parpadeo abriria un INICIO mientras el viejo
+          acabara cerrando solo, y una sola persona quedaria en dos registros.
+
+        En los dos casos solo se retoma si ademas reaparece mas o menos donde
+        se fue, para que una persona distinta que entra por otro lado del
+        encuadre no se apropie del episodio de la anterior. Devuelve True si
+        lo retomo.
         """
         if not clave:
             return False
+        if self._retomar_de_espera(pid, clave, caja, zona):
+            return True
+        return self._reanimar_episodio(pid, clave, caja, zona, vistos)
+
+    def _retomar_de_espera(self, pid, clave, caja, zona):
+        """Retoma el episodio de quien quedo apartado tras dejar de verse."""
         centro = centro_caja(caja)
         for i in range(len(self.en_espera) - 1, -1, -1):
             item = self.en_espera[i]
@@ -771,6 +866,47 @@ class MonitorEPP:
                     continue
             self.en_espera.pop(i)
             self.episodio[pid] = item["episodio"]
+            return True
+        return False
+
+    def _reanimar_episodio(self, pid, clave, caja, zona, vistos=None):
+        """Adopta el episodio abierto de alguien que en este frame no se ve.
+
+        `vistos` es el conjunto de pid que aparecen en el frame actual. La
+        condicion de "no se ve" es lo unico que impide que un obrero parado
+        al lado, con la misma falta y a la misma distancia, le robe el
+        registro al de enfrente: si los dos se ven, ninguno es candidato.
+
+        Por eso, sin `vistos` no se reanima nada. Quien no informa quien
+        esta en el cuadro tampoco puede afirmar que el episodio de un pid que
+        no llama sea de la misma persona; para eso esta la espera, que si
+        exige haber visto desaparecer al anterior.
+        """
+        if vistos is None:
+            return False
+        vistos = vistos or frozenset()
+        centro = centro_caja(caja)
+        for otro_pid, episodio in list(self.episodio.items()):
+            if otro_pid == pid or otro_pid in vistos:
+                continue
+            if self.violacion_confirmada.get(otro_pid) != clave:
+                continue
+            if episodio.get("zona") != zona:
+                continue
+            caja_anterior = self.caja_vista.get(otro_pid)
+            if centro is not None and caja_anterior is not None:
+                if math.hypot(centro[0] - caja_anterior[0],
+                              centro[1] - caja_anterior[1]) > \
+                        alcance_reaparicion(caja_anterior):
+                    continue
+            # El episodio cambia de manos. El pid anterior se retira de todos
+            # los mapas para que despues no lo aparque y cierre con un FIN que
+            # duplicaria el caso que aqui sigue abierto.
+            del self.episodio[otro_pid]
+            for mapa in MEMORIA_PID:
+                if otro_pid in getattr(self, mapa):
+                    del getattr(self, mapa)[otro_pid]
+            self.episodio[pid] = episodio
             return True
         return False
 
@@ -981,6 +1117,19 @@ class MonitorEPP:
         self.n_frames += 1
         personas, epps, hay_seguimiento = self._detectar(frame)
 
+        # El EPP se asocia a cada persona una sola vez, y lo consumen tanto la
+        # regla anti-fantasma como la evaluación de la infracción.
+        partes_por_pid = {p["id"]: self._partes_de(epps, p) for p in personas}
+        # Cajas que no parecen cuerpos: un chaleco cajado como 'Person'. Se
+        # siguen difuminando, pero no se vigilan ni se les abren registros,
+        # porque no hay nadie detrás.
+        vigiladas = [p for p in personas
+                     if parece_cuerpo(p, partes_por_pid[p["id"]])]
+        # Todos los pid con caja de persona en este frame, no solo los
+        # vigilados: sirve para no reanimarle el episodio a alguien que sigue
+        # a la vista aunque todavía no haya entrado en zona.
+        vistos = {p["id"] for p in personas}
+
         # Se ejecuta antes de mirar a las personas del frame: los episodios de
         # quienes dejaron de verse se apartan (o se cierran si se agoto la
         # gracia) en el mismo frame en que se pierden de vista.
@@ -993,11 +1142,11 @@ class MonitorEPP:
             # píxeles: hace falta el tamaño del frame para pasar de una a otra.
             alto, ancho = frame.shape[:2]
 
-        for p in personas:
+        for p in vigiladas:
             pid = p["id"]
             self.ultimo_visto[pid] = self.n_frames
             self.caja_vista[pid] = p["caja"]
-            partes = self._partes_de(epps, p)
+            partes = partes_por_pid[pid]
             estado = evaluar_persona(partes)
             # Si no hay EPP detectado, la confianza de la persona es la unica
             # señal disponible; con 0 el incidente no significaria nada.
@@ -1025,25 +1174,31 @@ class MonitorEPP:
                 ventana.append(estado)
                 if sum(1 for s in ventana if s == estado) >= MIN_FRAMES_PARA_ALERTAR:
                     self._registrar_cambio(pid, estado, confianza, nuevos,
-                                           p["caja"], zona)
+                                           p["caja"], zona, vistos)
                 self.ultimo_estado[pid] = estado
             else:
                 # Sin IDs no hay identidad estable entre frames, pero el estado
                 # se sigue notificando una sola vez por cambio.
-                self._registrar_cambio(pid, estado, confianza, nuevos, p["caja"], zona)
+                self._registrar_cambio(pid, estado, confianza, nuevos,
+                                       p["caja"], zona, vistos)
 
         # El difuminado va antes de dibujar, para que la evidencia salga limpia.
+        # Va sobre las cajas SIN FILTRAR: la regla anti-fantasma decide a quién
+        # se vigila, no a quién se difumina. El anonimato no admite excepciones
+        # ni descartes.
         for p in personas:
             cabezas = [e for e in epps if e["nombre"] in CLASES_CABEZA]
             self.difumar_rostros(frame, p["caja"], cabezas)
-        if not personas and epps:
-            # YOLO no acerto la clase 'Person' (gafas, sombra, perfil) y la
-            # persona sigue en el encuadre. Sin su caja no hay donde recortar,
-            # asi que se difumina el frame entero: el anonimato no depende de
-            # que el detector acierte.
+        if not vigiladas and epps:
+            # No hay nadie creíble a quien difuminar: o YOLO no acertó la clase
+            # 'Person' (gafas, sombra, perfil) y la persona sigue en el encuadre,
+            # o todo lo que se ve es un EPP suelto. Sin una caja de persona
+            # donde recortar, se difumina el frame entero.
             difumar_roi(self.detector, frame)
 
-        for p in personas:
+        # Solo se enmarca y se etiqueta a quien se vigila: la caja de un
+        # chaleco cajado como persona no debe salir con etiqueta de alerta.
+        for p in vigiladas:
             pid = p["id"]
             x1, y1, x2, y2 = p["caja"]
             cv2.rectangle(frame, (x1, y1), (x2, y2), COLORES["Person"], 1)
@@ -1067,7 +1222,7 @@ class MonitorEPP:
         ahora = time.time()
         self.fps = 1.0 / max(ahora - self.t_prev, 1e-6)
         self.t_prev = ahora
-        texto(frame, f"Personas: {len(personas)} | FPS: {self.fps:.1f}",
+        texto(frame, f"Personas: {len(vigiladas)} | FPS: {self.fps:.1f}",
               (10, 25), 0.6, COLOR_TEXTO)
 
         # La evidencia se genera con las marcas ya dibujadas.
