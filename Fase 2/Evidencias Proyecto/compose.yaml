@@ -1,0 +1,114 @@
+# CascoVision: todo el software con un comando (RNF-15).
+#
+#   cp .env.example .env     # y cambiar los valores "cambiar_esto"
+#   docker compose up -d                       # db + api + edge
+#   docker compose --profile dev up -d --build # ademas, camara RTSP y baliza simuladas
+#
+# Los Dockerfile se construyen desde la raiz del repositorio (context: ../..)
+# porque el lock de uv (pyproject.toml, uv.lock) vive ahi. Diseno: docs/DISENO_DOCKER.md.
+name: cascovision
+
+services:
+  db:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cascovision}
+      POSTGRES_USER: ${POSTGRES_USER:-cascovision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+      CASCOVISION_SEED: ${CASCOVISION_SEED:-0}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db:/migraciones:ro
+      - ./docker/db/00-migrar.sh:/docker-entrypoint-initdb.d/00-migrar.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Fase 2/Evidencias Proyecto/docker/api.Dockerfile
+    image: cascovision/api:dev
+    environment:
+      CASCOVISION_STORAGE: postgres
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-cascovision}
+      POSTGRES_USER: ${POSTGRES_USER:-cascovision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+      EDGE_API_TOKEN: ${EDGE_API_TOKEN:?Falta EDGE_API_TOKEN en .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Solo en este equipo (127.0.0.1): hasta que exista el dashboard (nginx), la API es la
+    # unica forma de ver los datos. En la faena se quita esta linea (AD-07).
+    ports:
+      - "127.0.0.1:${API_PUERTO:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  edge:
+    build:
+      context: ../..
+      dockerfile: Fase 2/Evidencias Proyecto/docker/edge.Dockerfile
+    image: cascovision/edge:dev
+    environment:
+      EDGE_API_TOKEN: ${EDGE_API_TOKEN:?Falta EDGE_API_TOKEN en .env}
+      BALIZA_TOKEN: ${BALIZA_TOKEN:?Falta BALIZA_TOKEN en .env}
+      # En la faena: rtsp://usuario:clave@IP:554/... (si no se define, manda "fuente" de edge.json).
+      CAMARA_FUENTE: ${CAMARA_FUENTE:-}
+    volumes:
+      - type: bind
+        source: ./docker/edge/config.json
+        target: /config/edge.json
+        read_only: true
+      - type: bind
+        source: ./models
+        target: /app/Fase 2/Evidencias Proyecto/models
+        read_only: true
+      - edge-datos:/data/edge
+      - evidencia:/app/Fase 2/Evidencias Proyecto/incidents
+    # El agente arranca con su config.json si la API no responde (AD-04), asi que no espera
+    # a la API. Si la camara aun no esta lista, el proceso termina y restart lo reintenta.
+    healthcheck:
+      # El agente reescribe ultimo_cuadro.jpg en cada cuadro analizado (1 por segundo).
+      test: ["CMD-SHELL", "find /data/edge -name ultimo_cuadro.jpg -mmin -1 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+  rtsp-sim:
+    profiles: [dev]
+    image: bluenviron/mediamtx:1.15.0-ffmpeg
+    volumes:
+      - ./docker/rtsp-sim.yml:/mediamtx.yml:ro
+      - ./docker/rtsp-sim:/video:ro
+    restart: unless-stopped
+
+  receptor-sim:
+    profiles: [dev]
+    build:
+      context: ../..
+      dockerfile: Fase 2/Evidencias Proyecto/docker/receptor-sim.Dockerfile
+    image: cascovision/receptor-sim:dev
+    environment:
+      BALIZA_TOKEN: ${BALIZA_TOKEN:?Falta BALIZA_TOKEN en .env}
+      ZONE_ID: zona-norte
+    # La "pantalla" de la baliza se ve en http://127.0.0.1:8081
+    ports:
+      - "127.0.0.1:8081:8081"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  edge-datos:
+  evidencia:
