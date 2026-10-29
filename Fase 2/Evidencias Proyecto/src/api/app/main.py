@@ -275,6 +275,8 @@ def get_store() -> almacen.Almacen:
 def _store_call(funcion, *args):
     try:
         return funcion(*args)
+    except almacen.ReferenciaIncidenteInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except almacen.AlmacenNoDisponible as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
