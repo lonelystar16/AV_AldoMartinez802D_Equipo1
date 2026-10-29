@@ -3,8 +3,8 @@
 ## 1. Criterios del modelo
 
 - **PostgreSQL** como única base de datos (AD-10 del capítulo de arquitectura).
-- Se **conserva la tabla `incidents`** de las migraciones 001 y 002 tal como está, porque la API y sus pruebas ya la usan. Las tablas nuevas se agregan en una migración 003 (tarea 4.8).
-- Las cámaras, zonas y balizas usan **identificadores de texto legibles** (`camara-02`, `zona-norte`, `baliza-02`), los mismos que el agente Edge ya envía en `camera_id` y `zone_id`. Así la migración 003 puede agregar las claves foráneas sin cambiar la API.
+- Se **conserva la tabla `incidents`** de las migraciones 001 y 002 tal como está, porque la API y sus pruebas ya la usan. Las tablas nuevas se agregan en la migración 004 (tarea 4.8).
+- Las cámaras, zonas y balizas usan **identificadores de texto legibles** (`camara-02`, `zona-norte`, `baliza-02`), los mismos que el agente Edge ya envía en `camera_id` y `zone_id`. Así, cuando se añadan las claves foráneas de `incidents`, no habrá que cambiar la API.
 - **No se guardan datos personales de los trabajadores** (Ley N° 19.628): `person_track_id` es un número anónimo de ByteTrack y la evidencia es solo una ruta a una imagen difuminada.
 - Los secretos (contraseñas de cámaras, tokens) **no van en la base de datos**: `rtsp_url` se guarda sin credenciales y estas viven en variables de entorno.
 
@@ -139,9 +139,24 @@
 
 ## 5. Plan de migración
 
-1. **003_modelo_completo.sql** (tarea 4.8): crea `cameras`, `zones`, `beacons`, `users`, `incident_events`, `notifications` y `shifts`.
-2. **004_claves_incidentes.sql**: agrega a `incidents` las claves foráneas hacia `cameras` y `zones` y los índices de §4. Va separada porque exige que existan las cámaras y zonas de los incidentes ya registrados (datos semilla de la tarea 4.9).
-3. Vistas de reportería por zona, turno y horario (tarea 4.11).
+Aplicadas, en orden:
+
+1. **001_create_incidents.sql**: la tabla `incidents`.
+2. **002_add_tracking_fields.sql**: seguimiento de ByteTrack, `violation_types` y el índice de historial simple.
+3. **003_add_episode_lifecycle.sql**: `episode_id`, `started_at`, `ended_at`, `ping_count` y el ciclo del aviso (`inicio` / `ping` / `fin`).
+4. **004_modelo_recursos.sql** (tarea 4.8): crea `cameras`, `zones` y `beacons`.
+5. **005_indices_incidentes.sql**: los índices de §4 que tocan a `incidents`.
+6. **`db/seed.sql`** (tarea 4.9): cámaras, zonas y balizas de ejemplo. Es idempotente (`ON CONFLICT DO NOTHING`), así que se puede volver a ejecutar. `db/recursos.json` carga el mismo catálogo para el almacenamiento JSON.
+
+Pendientes:
+
+- **Claves foráneas de `incidents` hacia `cameras` y `zones`.** No están ni en 004 ni en 005: exigen que existan las cámaras y zonas de los incidentes ya registrados, y un arranque que falla por datos viejos es peor que un arranque sin integridad referencial. Mientras tanto la API valida ambos identificadores en su modelo y el reporte los une por igualdad de texto. Van en una migración aparte, una vez aplicada la semilla.
+- `users`, `incident_events`, `notifications` (tarea 4.10).
+- Vistas de reportería por zona y horario (tarea 4.11).
+
+> **Numeración.** Este documento preveía `003_modelo_completo.sql` y
+> `004_claves_incidentes.sql`, pero el 003 quedó ocupado por el ciclo de vida
+> del episodio y los recursos pasaron a ser 004 y 005.
 
 ## 6. Puntos a confirmar
 
