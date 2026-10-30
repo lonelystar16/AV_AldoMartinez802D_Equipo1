@@ -1,6 +1,9 @@
 """Integración SQL real; se omite sin CASCOVISION_TEST_POSTGRES=1."""
 
 from pathlib import Path
+import subprocess
+import sys
+from datetime import datetime
 
 import pytest
 
@@ -8,11 +11,16 @@ PROJECT = Path(__file__).resolve().parents[1]
 CATALOGS = PROJECT / "db/seed/001_catalogos.sql"
 INCIDENTS = PROJECT / "db/seed/002_incidentes_demo.sql"
 FOREIGN_KEYS = PROJECT / "db/migrations/005_claves_incidentes.sql"
+INTEGRITY = PROJECT / "db/migrations/006_integridad_y_auditoria.sql"
+REPORTS = PROJECT / "db/migrations/007_vistas_reporteria.sql"
+ROLES = PROJECT / "db/roles.sql"
 
 
 @pytest.fixture
 def seeded_db(postgres_db):
     postgres_db.execute(INCIDENTS.read_text(encoding="utf-8"))
+    postgres_db.execute(INTEGRITY.read_text(encoding="utf-8"))
+    postgres_db.execute(REPORTS.read_text(encoding="utf-8"))
     return postgres_db
 
 
@@ -209,7 +217,8 @@ def test_relaciones_y_borrado_de_historial(seeded_db):
         "VALUES (%s, %s, 'open', 'reviewed')", (incident, user),
     )
     db.execute(
-        "INSERT INTO notifications (incident_id, user_id, channel) VALUES (%s, %s, 'email')",
+        "INSERT INTO notifications (incident_id, user_id, channel, destination) "
+        "VALUES (%s, %s, 'email', 'prevencion@example.invalid')",
         (incident, user),
     )
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
@@ -229,3 +238,136 @@ def test_borrar_camara_sin_incidentes_desasigna_balizas(postgres_db):
     postgres_db.execute("DELETE FROM cameras WHERE id = 'camara-01'")
     assert postgres_db.execute("SELECT count(*) FROM zones WHERE camera_id = 'camara-01'").fetchone()[0] == 0
     assert postgres_db.execute("SELECT zone_id FROM beacons").fetchall() == [(None,), (None,)]
+
+
+def test_migraciones_006_007_repetibles(seeded_db):
+    db = seeded_db
+    for _ in range(2):
+        db.execute(INTEGRITY.read_text(encoding="utf-8"))
+        db.execute(REPORTS.read_text(encoding="utf-8"))
+    assert db.execute("SELECT count(*) FROM incidents").fetchone()[0] == 4
+    assert db.execute("SELECT count(*) FROM incidentes_por_zona").fetchone()[0] == 3
+
+
+def test_migracion_006_restricciones_y_datos(seeded_db):
+    import psycopg
+
+    db = seeded_db
+    assert db.execute("SELECT bool_and(face_blurred = FALSE), bool_and(updated_at IS NOT NULL) FROM incidents").fetchone() == (True, True)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE incidents SET violation_types = ARRAY['missing_reflective_vest'] WHERE person_track_id = 7")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE incidents SET event = 'fin', ended_at = NULL WHERE person_track_id = 7")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE incidents SET started_at='2026-01-15T11:00:00Z', last_ping_at='2026-01-15T10:00:00Z' WHERE person_track_id=7")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("INSERT INTO incident_events (incident_id,user_id,from_status,to_status) SELECT id,'d2000000-0000-4000-8000-000000000102','open','open' FROM incidents LIMIT 1")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("INSERT INTO incident_events (incident_id,user_id,from_status,to_status) SELECT id,'d2000000-0000-4000-8000-000000000102','open','closed' FROM incidents LIMIT 1")
+
+
+def test_zona_de_otra_camara_no_se_acepta(seeded_db):
+    import psycopg
+
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        seeded_db.execute("UPDATE incidents SET camera_id='camara-01', zone_id='zona-bodega' WHERE person_track_id=10")
+
+
+def test_notificaciones_destino_fecha_y_unicidad(seeded_db):
+    import psycopg
+
+    db = seeded_db
+    incident = 'd2000000-0000-4000-8000-000000001001'
+    user = 'd2000000-0000-4000-8000-000000000102'
+    db.execute(
+        "INSERT INTO notifications (incident_id,user_id,channel,destination) VALUES (%s,%s,'email','test@example.invalid')",
+        (incident, user),
+    )
+    created_at = db.execute("SELECT created_at FROM notifications").fetchone()[0]
+    assert created_at is not None
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        db.execute(
+            "INSERT INTO notifications (incident_id,user_id,channel,destination) VALUES (%s,%s,'email','test@example.invalid')",
+            (incident, user),
+        )
+    with pytest.raises(psycopg.errors.NotNullViolation):
+        db.execute(
+            "INSERT INTO notifications (incident_id,user_id,channel,destination) VALUES (%s,%s,'sms',NULL)",
+            (incident, user),
+        )
+
+
+def test_vistas_de_reporteria_en_hora_local(seeded_db):
+    db = seeded_db
+    turnos = dict(db.execute("SELECT shift_name,total_incidentes FROM incidentes_por_turno").fetchall())
+    assert turnos == {'Mañana': 2, 'Tarde': 1, 'Noche': 1}
+    assert db.execute("SELECT total_incidentes FROM incidentes_por_zona WHERE zone_id='zona-norte'").fetchone()[0] == 2
+    assert db.execute("SELECT sum(total_incidentes) FROM incidentes_por_hora").fetchone()[0] == 4
+
+
+def test_face_blurred_y_updated_at(seeded_db):
+    db = seeded_db
+    old = db.execute("SELECT updated_at FROM incidents WHERE person_track_id=7").fetchone()[0]
+    db.execute("SELECT pg_sleep(0.01)")
+    db.execute("UPDATE incidents SET face_blurred=TRUE WHERE person_track_id=7")
+    blurred, updated = db.execute(
+        "SELECT face_blurred, updated_at FROM incidents WHERE person_track_id=7"
+    ).fetchone()
+    assert blurred is True and updated > old
+
+
+def test_roles_sql_concede_permisos_minimos(postgres_db):
+    import re
+    import uuid
+    from psycopg import sql
+
+    db = postgres_db
+    can_create_roles = db.execute(
+        "SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname=current_user"
+    ).fetchone()[0]
+    if not can_create_roles:
+        pytest.skip("El usuario PostgreSQL de pruebas necesita CREATEROLE para comprobar roles.sql")
+
+    suffix = uuid.uuid4().hex[:10]
+    names = {
+        "cascovision": f"cv_api_{suffix}",
+        "auditoria_admin": f"cv_audit_{suffix}",
+        "prevencion_mantencion": f"cv_prev_{suffix}",
+    }
+    source = ROLES.read_text(encoding="utf-8")
+    for original, temporary in names.items():
+        source = re.sub(rf"\b{original}\b", temporary, source)
+    try:
+        db.execute(source, prepare=False)
+        assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'INSERT')", (names["cascovision"],)).fetchone()[0]
+        assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'DELETE')", (names["auditoria_admin"],)).fetchone()[0] is False
+        assert db.execute("SELECT has_table_privilege(%s, 'incident_events', 'UPDATE')", (names["auditoria_admin"],)).fetchone()[0] is False
+        assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'SELECT')", (names["prevencion_mantencion"],)).fetchone()[0]
+        assert db.execute("SELECT has_table_privilege(%s, 'users', 'SELECT')", (names["prevencion_mantencion"],)).fetchone()[0] is False
+        db.execute("CREATE TABLE role_default_privilege_probe (id integer)")
+        assert db.execute("SELECT has_table_privilege(%s, 'role_default_privilege_probe', 'INSERT')", (names["cascovision"],)).fetchone()[0]
+        assert db.execute("SELECT has_table_privilege(%s, 'role_default_privilege_probe', 'SELECT')", (names["prevencion_mantencion"],)).fetchone()[0] is False
+        db.execute("DROP TABLE role_default_privilege_probe")
+    finally:
+        db.execute(sql.SQL("DROP OWNED BY {}, {}, {}").format(*[sql.Identifier(name) for name in names.values()]))
+        db.execute(sql.SQL("DROP ROLE {}, {}, {}").format(*[sql.Identifier(name) for name in names.values()]))
+
+
+if __name__ == "__main__":
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    log_dir = PROJECT / "tests" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"test_db_{timestamp}.log"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-vv", "-s", str(Path(__file__).resolve())],
+        cwd=PROJECT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    log_path.write_text(result.stdout, encoding="utf-8")
+    print(result.stdout, end="")
+    print(f"\nLog completo guardado en: {log_path}")
+    raise SystemExit(result.returncode)
