@@ -54,3 +54,9 @@ Thumbs.db
 # Archivos temporales de trabajo del agente
 .ai/
 agents.md
+AGENTS.md
+
+# Salidas locales de pruebas y del receptor simulado
+/Fase 2/Evidencias Proyecto/tests/logs/
+/Fase 2/Evidencias Proyecto/src/firmware/receptor-sim/alerts.jsonl
+/graphify-out/
