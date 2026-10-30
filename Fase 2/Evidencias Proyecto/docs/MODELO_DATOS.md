@@ -3,7 +3,7 @@
 ## 1. Criterios del modelo
 
 - **PostgreSQL** como única base de datos (AD-10 del capítulo de arquitectura).
-- Se **conserva la tabla `incidents`** de las migraciones 001 y 002 y su compatibilidad con la API y sus pruebas. La migración 003 incorpora el ciclo de vida de episodios y la 004 agrega las tablas nuevas (tarea 4.8).
+- Se conserva la tabla `incidents` desde 001 y su compatibilidad con la API; 002–003 agregan seguimiento y ciclo de episodios, 004–005 el modelo relacional y sus FK, y 006–007 controles y reportería.
 - Las cámaras, zonas y balizas usan **identificadores de texto legibles** (`camara-02`, `zona-norte`, `baliza-02`), los mismos que el agente Edge ya envía en `camera_id` y `zone_id`. Así la migración 005 puede agregar las claves foráneas sin cambiar la API.
 - **No se guardan datos personales de los trabajadores** (Ley N° 19.628): `person_track_id` es un número anónimo de ByteTrack y la evidencia es solo una ruta a una imagen difuminada.
 - Los secretos (contraseñas de cámaras, tokens) **no van en la base de datos**: `rtsp_url` se guarda sin credenciales y estas viven en variables de entorno.
@@ -16,6 +16,7 @@
 | --- | --- | --- |
 | `cameras` → `zones` | 1 a N | Una cámara puede tener varias zonas de riesgo (RF-04) |
 | `zones` → `beacons` | 1 a 0..1 | Cada zona tiene a lo más una baliza (`beacons.zone_id` único) |
+| `zones` → `incidents` | 1 a N | FK compuesta 006 asegura que zona y cámara coincidan |
 | `cameras` → `incidents` | 1 a N | Cada incidente ocurre en una cámara |
 | `zones` → `incidents` | 1 a N | Cada incidente ocurre dentro de una zona |
 | `incidents` → `incident_events` | 1 a N | Historial de cambios de estado con comentario (RF-14) |
@@ -75,12 +76,18 @@
 | `violation_type` | `text` | No | `missing_helmet` o `missing_reflective_vest` | Infracción principal |
 | `violation_types` | `text[]` | Sí | Subconjunto de los dos valores | Todas las infracciones de la persona |
 | `confidence` | `double precision` | No | Entre 0 y 1 | Confianza del modelo |
-| `evidence_path` | `text` | No | Relativa, sin `..`, `\` ni `:` | Ruta a la imagen difuminada en el volumen de evidencia |
+| `evidence_path` | `text` | No | Relativa, sin `..`, `\` ni `:` | Ruta a la imagen procesada en el volumen de evidencia |
+| `face_blurred` | `boolean` | No | `false` | La aplicación lo marca verdadero solo tras guardar el archivo difuminado (006); no certifica visualmente el resultado |
 | `beacon_alert_status` | `text` | No | `alerted`, `failed` o `skipped_offline` | Resultado de la alerta física |
 | `beacon_alert_latency_ms` | `integer` | Sí | ≥ 0 | Tiempo de respuesta de la baliza |
 | `person_track_id` | `integer` | Sí | ≥ 0 | Número anónimo de seguimiento |
 | `status` | `text` | No | `open`, `reviewed`, `closed` o `false_positive`; por defecto `open` | Estado de gestión (RF-14) |
 | `created_at` | `timestamptz` | No | | Momento del registro en la API |
+| `episode_id` | `uuid` | Sí | Único parcial (003) | Identificador de episodio informado por Edge |
+| `event` | `text` | No | `inicio`, `ping`, `fin` (003) | Evento del ciclo de vida |
+| `ping_count` | `integer` | No | `0`, >= 0 (003) | Pings recibidos |
+| `started_at`, `last_ping_at`, `ended_at` | `timestamptz` | Sí | Coherencia temporal (003, 006) | Inicio, último ping y fin del episodio |
+| `updated_at` | `timestamptz` | No | `now()`, se actualiza por trigger (006) | Última modificación del incidente |
 
 ### `incident_events`
 
@@ -90,8 +97,12 @@
 | `incident_id` | `uuid` | No | FK → `incidents.id`, `ON DELETE CASCADE` | Incidente |
 | `user_id` | `uuid` | No | FK → `users.id` | Usuario que hizo el cambio |
 | `from_status`, `to_status` | `text` | No | Mismos valores que `incidents.status` | Cambio de estado |
-| `comment` | `text` | Sí | Obligatorio al pasar a `closed` o `false_positive` (regla de la API) | Justificación |
+| `comment` | `text` | Sí | Obligatorio al pasar a `closed` o `false_positive` (006) | Justificación |
 | `created_at` | `timestamptz` | No | `now()` | Momento del cambio |
+
+Migración 006 también exige `from_status <> to_status`. La FK a incidentes
+conserva `ON DELETE CASCADE`; este historial no es inmutable frente al dueño
+de las tablas.
 
 ### `users`
 
@@ -118,6 +129,10 @@
 | `attempts` | `integer` | No | `0` | Intentos realizados |
 | `sent_at` | `timestamptz` | Sí | | Momento del envío exitoso (RNF-03) |
 | `error` | `text` | Sí | | Último error del proveedor |
+| `created_at` | `timestamptz` | No | `now()` (006) | Momento de creación para medir latencia |
+| `destination` | `text` | No | Destino efectivamente usado (006) | Teléfono o correo como snapshot del envío |
+
+Índice único (006): `(incident_id, user_id, channel)`.
 
 ### `shifts`
 
@@ -144,10 +159,19 @@ Secuencia aprobada en **D2 v1.0**:
 1. **003 — ciclo de vida de episodios**: amplía `incidents` para incorporar el ciclo de vida de episodios, conservando la compatibilidad con la API.
 2. **004_modelo_completo.sql** (tarea 4.8): crea `cameras`, `zones`, `beacons`, `users`, `incident_events`, `notifications` y `shifts`.
 3. **005_claves_incidentes.sql**: agrega a `incidents` las claves foráneas hacia `cameras` y `zones` y los índices de §4. Va separada porque exige que existan las cámaras y zonas de los incidentes ya registrados (datos semilla de la tarea 4.9).
-4. Vistas de reportería por zona, turno y horario (tarea 4.11).
+4. **006_integridad_y_auditoria.sql:** coherencia cámara-zona, notificaciones,
+   eventos, evidencia difuminada y marcas temporales.
+5. **007_vistas_reporteria.sql** (tarea 4.11): vistas por zona, turno y hora;
+   convierte `detected_at` a la hora local `America/Santiago`, incluido Noche.
+
+La tabla `schema_migrations` registra archivo, SHA-256 y fecha mediante
+`db/apply_migrations.py`. Las migraciones aplicadas no se editan; se usa una
+migración compensatoria para revertir cambios que requieran conservar datos.
 
 ## 6. Puntos a confirmar
 
-- **Retención de la evidencia:** propuesta de 90 días para las imágenes y sin límite para los registros. Requiere un proceso de limpieza del volumen.
-- Si las zonas pueden tener **más de una baliza** (hoy 0..1). Para la demo basta una.
-- Si el supervisor ve **todas las zonas** o solo las de su frente (requeriría una tabla `user_zones`).
+- **Retención:** recomendar 90 días para imágenes y retención más larga para metadatos, sujeto a aprobación de negocio y normativa. No se automatiza el borrado; primero definir respaldo y proceso de limpieza.
+- **Balizas por zona:** mantener máximo una (0..1) para el alcance de demo; cambiar solo si operaciones confirma varias balizas por zona.
+- **Zonas del supervisor:** recomendar asignación explícita por frente antes de habilitar acceso; `user_zones` queda pendiente hasta tener esa matriz validada. No asumir acceso global.
+- **RNF-09:** `face_blurred` registra que el proceso informó éxito. Para probar 100 % se debe revisar y corregir el inventario histórico de imágenes; la columna sola no verifica píxeles.
+- **Roles:** ver `db/roles.sql`. Los roles de login PostgreSQL son cuentas técnicas/de conexión y no se sincronizan automáticamente con `users.role` ni con menús de FastAPI.
