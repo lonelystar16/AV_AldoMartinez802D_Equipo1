@@ -8,7 +8,9 @@ y los catálogos; las tablas existentes de la base no se modifican.
 
 import asyncio
 import os
+import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -81,7 +83,37 @@ def test_registrar_incidente_persiste() -> None:
 
     assert respuesta.status_code == 200
     assert respuesta.json()["violation_type"] == "missing_helmet"
+    assert respuesta.json()["violation_types"] == ["missing_helmet"]
     assert respuesta.json()["evidence_path"] == INCIDENTE["evidence_path"]
+
+
+def test_registrar_conserva_violation_types_y_agrega_tipo_principal() -> None:
+    incident_id = _registrar(violation_types=["missing_reflective_vest"]).json()["id"]
+
+    respuesta = _peticion("GET", f"/incidents/{incident_id}")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["violation_types"] == [
+        "missing_reflective_vest", "missing_helmet",
+    ]
+
+
+def test_face_blurred_se_persiste_y_se_devuelve() -> None:
+    incident_id = _registrar(face_blurred=True).json()["id"]
+
+    respuesta = _peticion("GET", f"/incidents/{incident_id}")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["face_blurred"] is True
+
+
+def test_face_blurred_es_falso_por_defecto() -> None:
+    incident_id = _registrar().json()["id"]
+
+    respuesta = _peticion("GET", f"/incidents/{incident_id}")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["face_blurred"] is False
 
 
 def test_registrar_sin_token_responde_401() -> None:
@@ -189,3 +221,23 @@ def test_health_sigue_disponible() -> None:
 
     assert respuesta.status_code == 200
     assert respuesta.json() == {"status": "ok", "service": "cascovision-api"}
+
+
+if __name__ == "__main__":
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"test_incidents_{timestamp}.log"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-vv", "-s", str(Path(__file__).resolve())],
+        cwd=Path(__file__).resolve().parents[1],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    log_path.write_text(result.stdout, encoding="utf-8")
+    print(result.stdout, end="")
+    print(f"\nLog completo guardado en: {log_path}")
+    raise SystemExit(result.returncode)
