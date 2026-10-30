@@ -38,6 +38,7 @@ def db_before_foreign_keys(monkeypatch):
 
 @pytest.fixture
 def postgres_db(db_before_foreign_keys):
-    path = PROJECT / "db/migrations/005_claves_incidentes.sql"
-    db_before_foreign_keys.execute(path.read_text(encoding="utf-8"))
+    for name in ("005_claves_incidentes.sql", "006_integridad_y_auditoria.sql"):
+        path = PROJECT / "db/migrations" / name
+        db_before_foreign_keys.execute(path.read_text(encoding="utf-8"))
     return db_before_foreign_keys
