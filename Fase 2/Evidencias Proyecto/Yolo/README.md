@@ -202,7 +202,7 @@ Una infracción se confirma tras aparecer en 2 de los últimos 5 frames, lo que 
 
 ### Evidencia
 
-Cada infracción confirmada guarda el frame, ya con los rostros difuminados, en `incidents/AAAA/MM/DD/`. El incidente se registra en la API con la referencia a ese archivo en `evidence_path`.
+Cada infracción confirmada guarda el frame, ya con las personas difuminadas, en `incidents/AAAA/MM/DD/`. Si YuNet y el detector de cabeza no encuentran un rostro, el motor difumina toda la región de la persona. El agente informa `face_blurred: true` solo tras completar el difuminado del frame y guardar la imagen; si falla alguno de esos pasos, no envía el incidente a la API.
 
 ---
 
