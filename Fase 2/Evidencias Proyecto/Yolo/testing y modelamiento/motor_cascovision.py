@@ -338,8 +338,15 @@ class MonitorEPP:
         n = self._difumar_roi(self.detector, roi)
         if n:
             return n
-        # Sin rostro detectado: banda conservadora sobre la caja de cabeza.
-        return self._difumar_cabeza(roi, cabezas)
+        # Sin rostro detectado, se difumina la cabeza detectada como respaldo.
+        n = self._difumar_cabeza(roi, cabezas)
+        if n:
+            return n
+        # Si ambos detectores fallan, se difumina toda la persona por privacidad.
+        alto, ancho = roi.shape[:2]
+        k = int(min(max(alto, ancho) * 2, 99)) | 1
+        roi[:] = cv2.GaussianBlur(roi, (k, k), 0)
+        return 1
 
     @staticmethod
     def _difumar_cabeza(roi, cabezas):
@@ -370,7 +377,12 @@ class MonitorEPP:
         carpeta = self.carpeta_evidencia.parent / relativa
         carpeta.mkdir(parents=True, exist_ok=True)
         nombre = f"incidente-{ahora.strftime('%H%M%S-%f')}.jpg"
-        cv2.imwrite(str(carpeta / nombre), frame)
+        try:
+            guardada = cv2.imwrite(str(carpeta / nombre), frame)
+        except cv2.error as exc:
+            raise OSError("No se pudo codificar la evidencia") from exc
+        if not guardada:
+            raise OSError("No se pudo guardar la evidencia")
         return (relativa / nombre).as_posix(), ahora
 
     def _registrar(self, frame, pid, estado, confianza):
@@ -385,6 +397,7 @@ class MonitorEPP:
             "violation_types": tipos,
             "confidence": round(min(1.0, max(0.0, confianza)), 4),
             "evidence_path": evidencia,
+            "face_blurred": True,
             "person_track_id": int(pid),
             "beacon_alert": {"status": "skipped_offline", "latency_ms": None},
         }
@@ -430,9 +443,11 @@ class MonitorEPP:
                 visible = self.estado_confirmado.get(pid, estado)
 
         # El difuminado va antes de dibujar, para que la evidencia salga limpia.
+        difuminado_completo = True
         for p in personas:
             cabezas = [e for e in epps if e["nombre"] in CLASES_CABEZA]
-            self.difumar_rostros(frame, p["caja"], cabezas)
+            if self.difumar_rostros(frame, p["caja"], cabezas) == 0:
+                difuminado_completo = False
 
         for p in personas:
             pid = p["id"]
@@ -464,8 +479,14 @@ class MonitorEPP:
         # La evidencia se genera con las marcas ya dibujadas.
         for pid, (estado, confianza) in nuevos.items():
             if estado:
-                incidentes.append(self._registrar(frame, pid, estado, confianza))
-                self._consola(pid, estado)
+                if not difuminado_completo:
+                    print(f"No se registra la persona {pid}: no se pudo difuminar el frame completo.")
+                    continue
+                try:
+                    incidentes.append(self._registrar(frame, pid, estado, confianza))
+                    self._consola(pid, estado)
+                except OSError as error:
+                    print(f"No se registra la persona {pid}: fallo al guardar evidencia ({error}).")
         return incidentes
 
     @staticmethod
