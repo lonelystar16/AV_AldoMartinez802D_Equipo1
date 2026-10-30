@@ -6,25 +6,45 @@
 
 ---
 
+## 0. Estado actual
+
+> 🚧 **Detector de 5 clases en producción.** La corrida `train-10` cerró por
+> *early stopping* en la época 94, con la mejor época en la 64. El modelo
+> entregado es [`models/cascovision_yolo26s.pt`](../models/). La sección 3.5
+> recoge sus métricas y la comparación con la línea base `train-9`.
+
+---
+
 ## 1. Alcance del modelo
 
-El modelo detecta elementos de seguridad en el torso de las personas dentro de
-cuadro. El agente Edge opera sobre el subconjunto de **casco** y **chaleco
-reflectante**: son los dos elementos asociados a la baliza de alerta. El resto de
-implementos que el modelo reconoce se detecta, pero no genera incidentes.
+El detector actual opera sobre un esquema de **5 clases**, todas del producto:
 
-| Elemento | Clase del modelo | Resultado |
-| --- | --- | --- |
-| Casco | `helmet` | cumple |
-| Sin casco | `no_helmet` | `missing_helmet` |
-| Chaleco reflectante | `vest` | cumple |
-| Sin chaleco | `none` en torso | `missing_reflective_vest` |
+| Id | Clase | Qué es | Resultado |
+| --- | --- | --- | --- |
+| 0 | `helmet` | Casco sobre la cabeza | cumple |
+| 1 | `no_helmet` | Persona **sin** casco | `missing_helmet` |
+| 2 | `no_vest` | Persona **sin** chaleco | `missing_reflective_vest` |
+| 3 | `Person` | Persona completa | ancla de la asociación |
+| 4 | `vest` | Chaleco reflectante | cumple |
 
-El modelo trabaja con 11 clases: `helmet`, `gloves`, `vest`, `boots`, `goggles`,
-`none`, `Person`, `no_helmet`, `no_goggle`, `no_gloves`, `no_boots`. Las que
-interesan al producto son `Person`, `helmet`, `no_helmet` y `vest`.
+La diferencia con el modelo anterior (train-9, 11 clases) es que **las
+infracciones se detectan de forma positiva**: antes había que inferir que
+faltaba un casco por su ausencia, y la clase `none` genérica se reinterpretaba
+por zona del cuerpo. Ahora `no_helmet` y `no_vest` son clases explícitas, y la
+heurística de reinterpretación desapareció.
 
-### La clase `none` y su reinterpretación por zona
+El mapeo de clases se determinó combinando contención de cajas, geometría
+relativa a la persona, inspección visual de recortes y exclusividad mutua.
+Está documentado en [`../docs/MODELO.md`](../docs/MODELO.md).
+
+### El modelo anterior (train-9)
+
+Para referencia histórica, el modelo de 11 clases tenía: `helmet`, `gloves`,
+`vest`, `boots`, `goggles`, `none`, `Person`, `no_helmet`, `no_goggle`,
+`no_gloves`, `no_boots`. Las seis clases que el producto no usa hundían el
+promedio de mAP@0,5 y no permitían una comparación justa de clases.
+
+### La clase `none` y su reinterpretación por zona (modelo de 11 clases)
 
 El modelo no incluye una clase `no_vest`. La clase `none` (id 5) es una caja
 genérica de "sin implemento en esta zona", por lo que el motor la reinterpreta
@@ -68,17 +88,48 @@ casco queda por debajo y el 91,5% de las de chaleco por encima.
 
 ### Dataset
 
-Es el dataset **Construction-PPE de Ultralytics**
-(<https://docs.ultralytics.com/datasets/detect/construction-ppe>). **No se
-versiona en Git** por su tamaño (~258 MB). Para entrenar, dejar las imágenes y
-las etiquetas en `Yolo/dataset/images/` y `Yolo/dataset/labels/`, con las
-divisiones `train`, `val` y `test`. Se pueden obtener de dos formas:
+Hay **dos datasets** distintos en el historial del proyecto.
 
-- pedir a Joaquín la copia exacta usada en `train-9`, recomendado para
-  reproducir las métricas;
-- descargarlo con Ultralytics (`yolo train data=construction-ppe.yaml` lo baja
-  solo) y copiar sus carpetas `images/` y `labels/` a `Yolo/dataset/`. Si la
-  versión publicada cambió, las métricas pueden variar.
+#### Dataset actual (5 clases) — el que se usa para `train-10`
+
+Export de **Roboflow** del conjunto Construction-PPE, con esquema de 5 clases
+propio. **No se versiona en Git** por su tamaño (~440 MB). La configuración
+está en `Yolo/dataset/construccion-implementos.yaml` y las imágenes y
+etiquetas en `Yolo/dataset/{train,valid,test}/{images,labels}/`.
+
+| División | Imágenes |
+| --- | --- |
+| train | 5.033 |
+| valid | 732 |
+| test | 129 |
+
+Distribución de instancias:
+
+| División | `helmet` | `no_helmet` | `no_vest` | `Person` | `vest` |
+| --- | --- | --- | --- | --- | --- |
+| train | 5.994 | 4.871 | 5.669 | 9.234 | 2.916 |
+| valid | 835 | 618 | 722 | 1.121 | 296 |
+| test | 147 | 114 | 143 | 205 | 54 |
+
+Los tres splits son **disjuntos por nombre de archivo original** de Roboflow
+(sin el sufijo `.rf.<hash>`): una misma imagen con distintas augmentations no
+cae en dos splits, para que las métricas no se inflen.
+
+> `construccion-implementos.yaml` **no declara `path:`**. Ultralytics resuelve
+> entonces las rutas contra la carpeta del propio YAML, así que el
+> entrenamiento funciona desde cualquier directorio de trabajo. Declarar
+> `path:` ataría el dataset al directorio desde el que se lanza la corrida.
+
+> ⚠️ El `nc` del YAML debe coincidir con el número real de clases del
+> dataset. Si no coincide, Ultralytics **no lanza error**: marca la imagen como
+> corrupta y la descarta en silencio. Con `nc: 4` sobre este dataset se perdía
+> el 30 % de las imágenes de train.
+
+#### Dataset anterior (11 clases) — el de `train-9`
+
+**Construction-PPE de Ultralytics**
+(<https://docs.ultralytics.com/datasets/detect/construction-ppe>), con 11
+clases. Sus métricas son las de la sección 3.
 
 | División | Imágenes |
 | --- | --- |
@@ -158,6 +209,116 @@ El criterio de aceptación del SRS exige **mAP@0,5 ≥ 0,90** y **recall ≥ 0,8
 
 La versión actual es la línea base del modelado.
 
+### 3.5 Detector de 5 clases (`train-10`)
+
+Corrida cerrada por *early stopping* en la época 94, con la mejor época en la
+**64** (`patience` 30). El modelo entregado es
+[`models/cascovision_yolo26s.pt`](../models/), 19,4 MB.
+
+#### Métricas por clase
+
+Evaluación sobre el split `test` (129 imágenes):
+
+| Clase | mAP@0,5 | mAP@0,5:0,95 | Precisión | *Recall* |
+| --- | --- | --- | --- | --- |
+| `vest` | 0,953 | 0,725 | 0,911 | 0,963 |
+| `Person` | 0,909 | 0,667 | 0,899 | 0,826 |
+| `no_helmet` | 0,844 | 0,544 | 0,859 | 0,802 |
+| `no_vest` | 0,842 | 0,507 | 0,824 | 0,720 |
+| `helmet` | 0,836 | 0,589 | 0,762 | 0,784 |
+| **promedio** | **0,877** | **0,606** | 0,791 | 0,784 |
+
+#### Por decisión de negocio
+
+La métrica que importa es si el sistema acierta al declarar una infracción. Para
+comparar conjustice, el modelo de 11 clases se evaluó sobre el **mismo** split
+`test`, aplicando su propia lógica de decisión (inferir la ausencia de casco)
+sobre el mismo ground truth:
+
+| regla | `train-9` (11 clases) | `train-10` (5 clases) | Mejora |
+| --- | --- | --- | --- |
+| ¿lleva casco? | P 1,000 · R 0,643 · E 0,643 | **P 0,986 · R 0,947 · E 0,934** | *recall* **+0,304** |
+| ¿lleva chaleco? | P 0,951 · R 0,583 · E 0,566 | **P 1,000 · R 0,887 · E 0,887** | *recall* **+0,304** |
+
+**El RNF-05 se cumple en las dos reglas de negocio.** El *recall* pasa de 0,643 a
+0,947 en la regla de casco, y de 0,583 a 0,887 en la de chaleco. Ninguna de las
+dos cumplía el umbral de 0,85 antes.
+
+La mejora viene del *recall*, no de un canje de precisión por *recall*: la
+precisión se mantiene en ~0,99. El modelo anterior era muy preciso —casi nunca
+acusaba a alguien que sí llevaba casco— pero se le escapaban muchos casos,
+porque la infracción se infería de la **ausencia** de un casco. Con `no_helmet`
+y `no_vest` como clases negativas explícitas, el detector la declara
+directamente.
+
+#### Estado frente al RNF-05
+
+| Métrica | Obtenido | Requerido | Estado |
+| --- | --- | --- | --- |
+| *Recall* (regla de casco) | 0,947 | ≥ 0,85 | **cumple** |
+| *Recall* (regla de chaleco) | 0,887 | ≥ 0,85 | **cumple** |
+| mAP@0,5 (promedio de 5 clases) | 0,877 | ≥ 0,90 | por debajo |
+
+> ⚠️ **El mAP@0,5 promedio no es comparable con el de `train-9`.** El dataset
+> anterior tenía 11 clases de las cuales 6 el producto no usaba (guantes, botas,
+> gafas y sus negativos), y esas hundían el promedio a 0,611. El dataset nuevo
+> tiene 5 clases, todas del producto, así que el promedio sube por
+> construcción y no por mejor modelo. La comparación honesta son las **reglas
+> de negocio** y las **métricas por clase**, no el promedio.
+
+#### Configuración de la corrida
+
+| Parámetro | Valor |
+| --- | --- |
+| Modelo base | `yolo26s.pt` (COCO, 80 clases) |
+| Datos | `dataset/construccion-implementos.yaml` (5 clases) |
+| Épocas | 100 (`patience` 30) → **parada en la 94** |
+| Mejor época | **64** |
+| `imgsz` | 640 |
+| `batch` | 16 |
+| Optimizador | `auto` (AdamW) |
+| `cos_lr` | `True` |
+| `close_mosaic` | 10 |
+| `workers` | 4 |
+| Semilla | 0 |
+| Tiempo total | ~3,2 h |
+
+Se parte de la **base limpia** y no del checkpoint de 11 clases: el vocabulario
+de clases es incompatible, así que el mapeo por nombre de Ultralytics no
+trasladaría pesos útiles de las clases negativas. La clase `Person` sí hereda
+sus pesos de COCO, porque el nombre coincide.
+
+#### Protocolo de evaluación
+
+```bash
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/evaluacion.py" \
+    --model "Fase 2/Evidencias Proyecto/Yolo/runs/detect/train-10/weights/best.pt" \
+    --perfil 5clases --split test --json informe.json
+```
+
+El protocolo completo y cómo leer las cifras está en
+[`../docs/MODELO.md`](../docs/MODELO.md).
+
+#### Diagnóstico y línea de trabajo pendiente
+
+La curva de validación se aplanó desde la época 45 en torno a 0,845-0,854 de
+mAP@0,5, mientras las pérdidas de entrenamiento siguieron bajando: la señal de
+sobreajuste de `train-9` se repite, aunque con un techo mucho más alto (0,88
+frente a 0,62).
+
+El techo de ~0,88 de mAP@0,5 se explica por dos factores:
+
+1. **Desequilibrio de clases**: `vest` tiene 181 instancias en validación frente
+   a 492 de `Person`.
+2. **La clase `no_vest` es la más débil** (0,507 de mAP@0,5:0,95). Es la clase
+   que reemplaza la antigua `none`, que se reinterpretaba por zona del cuerpo:
+   la red tiene que aprender a distinguir "torso sin chaleco" de "torso con
+   chaleco" solo por la ausencia de reflectante, que es la tarea que peor
+   resuelve un detector de conjunto cerrado.
+
+La línea de trabajo pendiente es atacar esa clase: más ejemplos de `no_vest`, o
+una versión del dataset que marque explícitamente el torso.
+
 ### 3.4 Diagnóstico: sobreajuste
 
 Las pérdidas de entrenamiento bajan durante el entrenamiento, pero las de
@@ -186,9 +347,9 @@ Factores que explican el comportamiento:
 
 | Componente | Ruta | Función |
 | --- | --- | --- |
-| Motor de análisis | `Yolo/testing y modelamiento/motor_cascovision.py` | Detección, zonas, difuminado y registro de incidentes |
-| Monitoreo local | `Yolo/testing y modelamiento/monitoreo_v2.py` | Ejecuta el motor contra la cámara |
-| Agente Edge | `Yolo/testing y modelamiento/monitoreo_api.py` | Reporta los incidentes a la API |
+| Motor de análisis | `Yolo/modelamiento/motor_cascovision.py` | Detección, zonas, difuminado y registro de incidentes |
+| Monitoreo local | `Yolo/modelamiento/monitoreo_v2.py` | Ejecuta el motor contra la cámara |
+| Agente Edge | `Yolo/modelamiento/monitoreo_api.py` | Reporta los incidentes a la API |
 | API REST | `src/api/app/main.py` | `/health` y rutas de incidentes |
 | Persistencia | `src/api/app/almacen.py` | Almacenamiento en JSON, encapsulado para migrar a PostgreSQL |
 
@@ -208,18 +369,17 @@ Cada infracción confirmada guarda el frame, ya con las personas difuminadas, en
 
 ## 5. Dependencias
 
-Entorno validado: **Python 3.12**. Ver
-[`requirements-yolo.txt`](../requirements-yolo.txt).
+Entorno validado: **Python 3.12**. El proyecto usa **uv** como fuente única de
+dependencias, con el grupo `yolo` para el motor de detección:
 
 ```bash
-cd "Fase 2/Evidencias Proyecto"
-python -m pip install -r requirements-yolo.txt
+uv sync --group dev --group yolo
 ```
 
-El archivo instala, en este orden: PyTorch con CUDA 12.6 desde el índice de
+Ese grupo instala, en este orden: PyTorch con CUDA 12.6 desde el índice de
 PyTorch, Ultralytics 8.4 (necesario para cargar un checkpoint YOLO26), OpenCV
 anterior a 5.0, NumPy y `lap` (el seguimiento de ByteTrack). En un equipo sin GPU
-NVIDIA, quitar la línea `--extra-index-url` y el sufijo `+cu126` para instalar
+NVIDIA, hay que quitar el índice de PyTorch del `pyproject.toml` para instalar
 la versión de PyTorch para CPU.
 
 ### Notas del entorno
@@ -244,30 +404,27 @@ la versión de PyTorch para CPU.
 
 ### Monitoreo y API
 
-Desde la carpeta `Fase 2/Evidencias Proyecto`:
+Desde la raíz del repositorio:
 
 ```bash
-cd "Fase 2/Evidencias Proyecto"
-
 # Monitoreo local, sin API
-python "Yolo/testing y modelamiento/monitoreo_v2.py"
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_v2.py"
 
 # Agente Edge: reporta los incidentes a la API
-python -m uvicorn app.main:app --app-dir src/api --reload
-python "Yolo/testing y modelamiento/monitoreo_api.py"
+uv run uvicorn app.main:app --app-dir "Fase 2/Evidencias Proyecto/src/api" --reload
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_api.py"
 ```
 
 Presionar `q` en la ventana de video para finalizar.
 
 ### Entrenamiento
 
-El entrenamiento se lanza **desde la raíz del repositorio**, porque el dataset
-usa una ruta relativa a esa carpeta. El modelo base `yolo26s.pt` no se versiona:
-Ultralytics lo descarga automáticamente la primera vez que se usa.
+El entrenamiento se lanza **desde la raíz del repositorio**. El modelo base
+`yolo26s.pt` no se versiona: Ultralytics lo descarga automáticamente la
+primera vez que se usa.
 
 ```bash
-cd <raíz-del-repositorio>
-python "Fase 2/Evidencias Proyecto/Yolo/testing y modelamiento/entrenamiento.py"
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py"
 ```
 
 ### Anonimización de la evidencia

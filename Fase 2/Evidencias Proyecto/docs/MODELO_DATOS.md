@@ -154,7 +154,7 @@ de las tablas.
 
 ## 5. Plan de migración
 
-Secuencia aprobada en **D2 v1.0**:
+Secuencia de migraciones de **D2 v1.0**:
 
 1. **003 — ciclo de vida de episodios**: amplía `incidents` para incorporar el ciclo de vida de episodios, conservando la compatibilidad con la API.
 2. **004_modelo_completo.sql** (tarea 4.8): crea `cameras`, `zones`, `beacons`, `users`, `incident_events`, `notifications` y `shifts`.

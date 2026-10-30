@@ -1,0 +1,38 @@
+﻿name: CascoVision - Tests
+
+on:
+  pull_request:
+    branches:
+      - qa
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Ejecutar pruebas con pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Instalar dependencias del proyecto
+        run: uv sync --locked --group dev
+
+      - name: Instalar PyTorch para CPU
+        run: uv pip install --python .venv/bin/python --index-url https://download.pytorch.org/whl/cpu torch torchvision
+
+      - name: Instalar dependencias de vision computacional
+        run: uv pip install --python .venv/bin/python ultralytics numpy "opencv-python>=4.11,<5.0"
+
+      - name: Ejecutar pruebas
+        run: uv run --locked --no-sync pytest -v
