@@ -82,6 +82,7 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
   "violation_type": "missing_helmet",
   "confidence": 0.94,
   "evidence_path": "incidents/2026/01/15/incidente-143000-000000.jpg",
+  "face_blurred": true,
   "beacon_alert": {"status": "alerted", "latency_ms": 820},
   "person_track_id": 7,
   "violation_types": ["missing_helmet", "missing_reflective_vest"]
@@ -95,6 +96,7 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
 | `violation_type` | `missing_helmet` o `missing_reflective_vest` |
 | `confidence` | Entre `0` y `1` |
 | `evidence_path` | Relativa: sin `/` inicial, sin `..`, sin `\` y sin `:` (letra de unidad) |
+| `face_blurred` | Booleano opcional; Edge lo envía `true` tras difuminar las personas y guardar la imagen. Por defecto `false` |
 | `beacon_alert.status` | `alerted`, `failed` o `skipped_offline` |
 | `beacon_alert.latency_ms` | Entero ≥ 0 o `null` |
 | `person_track_id` | Opcional. Identificador de seguimiento de la persona (ByteTrack) |
@@ -115,6 +117,10 @@ Respuesta `201 Created`:
   configurada en PostgreSQL.
 - `503 Service Unavailable`: `EDGE_API_TOKEN` sin configurar, PostgreSQL sin
   configurar o caído, o migraciones pendientes.
+
+La API persiste `face_blurred` como una afirmación del agente Edge; no recibe ni
+inspecciona la imagen. El agente no reporta el incidente si falla el difuminado
+del frame o la escritura de la evidencia.
 
 ### `GET /incidents`
 
