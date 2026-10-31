@@ -1,0 +1,10 @@
+# Camara RTSP simulada: repite un video pregrabado como si fuera una camara IP.
+# `-g 10` = un cuadro clave por segundo: con el valor por defecto (250 cuadros) el
+# lector espera hasta 25 s el primer cuadro y el agente corta a los 5 s.
+paths:
+  camara-01:
+    runOnInit: >-
+      ffmpeg -re -stream_loop -1 -i /video/video_prueba.mp4
+      -an -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10
+      -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes

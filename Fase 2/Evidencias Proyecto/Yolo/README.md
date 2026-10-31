@@ -427,6 +427,26 @@ primera vez que se usa.
 uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py"
 ```
 
+**Reentrenamiento (`train-11`, tarea 4.2).** Necesita el dataset de 5 clases
+(~440 MB, no versionado) descomprimido en `Yolo/dataset/` con las carpetas
+`train/`, `valid/` y `test/`, y una GPU. Con 5.033 imágenes de entrenamiento no
+es viable en CPU. El parámetro `--device` elige dónde corre:
+
+| Equipo | `--device` | Notas |
+| --- | --- | --- |
+| PC con GPU NVIDIA | `0` (por defecto) | Requiere el índice CUDA de PyTorch del `pyproject.toml` |
+| Mac con chip Apple (GPU Metal) | `mps` | Más lento que CUDA; probar antes con `--epochs 2` |
+| Google Colab (GPU T4) | `0` | Montar el dataset desde Drive; copiar `runs/` y el `best.pt` al terminar |
+
+```bash
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py" \
+    --name train-11 --device mps --batch 16 --epochs 100
+```
+
+**Docker no sirve para entrenar.** En macOS y Windows un contenedor no ve la GPU
+del equipo (ni Metal ni, sin configuración extra, CUDA), así que correría en CPU.
+Los contenedores de `compose.yaml` son solo para la inferencia del agente Edge.
+
 ### Anonimización de la evidencia
 
 La banda difuminada se ancla en el punto medio de los dos ojos que reporta YuNet

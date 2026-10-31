@@ -1,0 +1,10 @@
+{
+  "camera_id": "camara-01",
+  "zone_id": "zona-norte",
+  "zone_name": "Zona Norte",
+  "fuente": "rtsp://rtsp-sim:8554/camara-01",
+  "poligono": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+  "baliza": {"url": "http://receptor-sim:8081", "duracion_s": 10},
+  "api": "http://api:8000",
+  "carpeta_datos": "/data/edge"
+}
