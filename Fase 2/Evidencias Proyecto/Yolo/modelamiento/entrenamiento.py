@@ -10,15 +10,16 @@ Ejemplos:
     # Corrida de referencia (5 clases, desde la base COCO)
     uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py"
 
-    # Reanudar o variant
+    # Variante; con --resume continua desde su last.pt si la corrida quedo a medias
     uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py" \
-        --name train-11 --epochs 150 --batch 8
+        --name train-11 --epochs 150 --batch 8 --resume
 """
 
 import argparse
 import sys
 from pathlib import Path
 
+import torch
 from ultralytics import YOLO
 
 # Raiz del repositorio: la carpeta que contiene "Fase 2".
@@ -48,9 +49,12 @@ def parse_args() -> argparse.Namespace:
                             help="'0' para la GPU, 'cpu' para forzar CPU")
     analizador.add_argument("--workers", type=int, default=4)
     analizador.add_argument("--seed", type=int, default=0)
+    analizador.add_argument("--mixup", type=float, default=0.0,
+                            help="Probabilidad de mixup. train-10 uso 0")
     analizador.add_argument("--project", default=str(RUTA_PROYECTO))
     analizador.add_argument("--resume", action="store_true",
-                            help="Continuar una corrida interrumpida")
+                            help="Continuar la corrida --name desde su last.pt si existe; "
+                                 "si no existe, empezarla")
     return analizador.parse_args()
 
 
@@ -60,15 +64,20 @@ def main() -> None:
     if not Path(args.data).is_file():
         sys.exit(f"No se encuentra el YAML del dataset: {args.data}")
 
-    # Ultralytics descarga el modelo base la primera vez (yolo26s.pt).
-    modelo = YOLO(args.model)
-
-    if args.resume:
-        # Reanuda el ultimo checkpoint de la corrida: el estado del optimizador
-        # y el contador de epocas se recuperan del propio checkpoint.
-        modelo.train(data=args.data, resume=True)
+    ultimo = Path(args.project) / args.name / "weights" / "last.pt"
+    if args.resume and ultimo.is_file():
+        # Al terminar, Ultralytics deja last.pt sin optimizador y con epoch -1: no hay
+        # nada que reanudar, y train(resume=True) fallaria en cada reinicio del contenedor.
+        if torch.load(ultimo, map_location="cpu", weights_only=False).get("epoch", -1) == -1:
+            print(f"La corrida {args.name} ya termino: {ultimo.with_name('best.pt')}")
+            return
+        # El estado del optimizador, el contador de epocas y los argumentos salen
+        # del propio checkpoint.
+        YOLO(ultimo).train(resume=True)
         return
 
+    # Ultralytics descarga el modelo base la primera vez (yolo26s.pt).
+    modelo = YOLO(args.model)
     modelo.train(
         data=args.data,
         epochs=args.epochs,
@@ -85,6 +94,7 @@ def main() -> None:
         # estancaron: el decaimiento coseno las estabiliza.
         cos_lr=True,
         close_mosaic=10,
+        mixup=args.mixup,
         optimizer="auto",
     )
 

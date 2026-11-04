@@ -443,9 +443,35 @@ uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py" \
     --name train-11 --device mps --batch 16 --epochs 100
 ```
 
-**Docker no sirve para entrenar.** En macOS y Windows un contenedor no ve la GPU
-del equipo (ni Metal ni, sin configuración extra, CUDA), así que correría en CPU.
-Los contenedores de `compose.yaml` son solo para la inferencia del agente Edge.
+**Con Docker, en un PC con GPU NVIDIA.** `compose.train.yaml` deja el
+entrenamiento corriendo en segundo plano sin instalar Python ni CUDA en el equipo.
+En Windows necesita Docker Desktop con WSL2 y el driver NVIDIA al día; en Linux,
+el NVIDIA Container Toolkit. Desde `Fase 2/Evidencias Proyecto/`, con el dataset ya
+descomprimido en `Yolo/dataset/`:
+
+```bash
+docker compose -f compose.train.yaml build
+docker compose -f compose.train.yaml run --rm cargar-dataset   # copia el dataset al volumen, una vez
+docker compose -f compose.train.yaml up -d entrenamiento       # train-11 en segundo plano
+lazydocker                                                     # o: docker compose -f compose.train.yaml logs -f
+```
+
+- El dataset vive en el volumen `cascovision-dataset` y no en un *bind mount*:
+  leer miles de imágenes desde `C:\` a través de WSL2 deja la GPU esperando.
+- Las corridas quedan en `Yolo/runs/detect/<nombre>/`, en el propio equipo.
+- Si el contenedor se cae (el PC se suspende, se corta la luz, Docker se
+  reinicia), al levantarlo de nuevo continúa desde `weights/last.pt`. Si la
+  corrida ya terminó, sale sin hacer nada.
+- `TRAIN_NOMBRE`, `TRAIN_EPOCAS`, `TRAIN_BATCH` y `TRAIN_WORKERS` cambian la
+  corrida sin editar el archivo. Por ejemplo,
+  `TRAIN_NOMBRE=train-12 docker compose -f compose.train.yaml up -d entrenamiento`.
+- `train-11` usa `--mixup 0.1`. En `train-10`, la pérdida de clasificación en
+  validación subió de 0,89 a 1,03 entre las épocas 46 y 94, mientras la de
+  entrenamiento seguía bajando: es sobreajuste.
+
+En macOS, Docker no ve la GPU Metal, así que el contenedor correría en CPU. Ahí
+se entrena de forma nativa con `--device mps` (tabla de arriba). Los contenedores
+de `compose.yaml` son solo para la inferencia del agente Edge.
 
 ### Anonimización de la evidencia
 
