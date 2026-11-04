@@ -358,7 +358,7 @@ def _condiciones_reporte(filtros: dict[str, Any]) -> tuple[str, list[Any]]:
 
 COLUMNAS = (
     "id, camera_id, zone_id, detected_at, violation_type, violation_types, "
-    "confidence, evidence_path, beacon_alert_status, beacon_alert_latency_ms, "
+    "confidence, evidence_path, face_blurred, beacon_alert_status, beacon_alert_latency_ms, "
     "person_track_id, status, created_at, event, episode_id, ping_count, "
     "started_at, last_ping_at, ended_at"
 )
@@ -401,8 +401,9 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
     """
     (
         incident_id, camera_id, zone_id, detected_at, violation_type,
-        violation_types, confidence, evidence_path, beacon_status,
-        beacon_latency, person_track_id, status, created_at, event,
+        violation_types, confidence, evidence_path, face_blurred, beacon_status,
+        beacon_latency, person_track_id, status, created_at,
+        event,
         episode_id, ping_count, started_at, last_ping_at, ended_at,
     ) = fila
     return {
@@ -414,6 +415,7 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
         "violation_types": violation_types,
         "confidence": confidence,
         "evidence_path": evidence_path,
+        "face_blurred": face_blurred,
         "beacon_alert": {"status": beacon_status, "latency_ms": beacon_latency},
         "person_track_id": person_track_id,
         "status": status,
@@ -514,11 +516,11 @@ class AlmacenPostgres:
         self._ejecutar(
             "INSERT INTO incidents ("
             "id, camera_id, zone_id, detected_at, violation_type, violation_types, "
-            "confidence, evidence_path, beacon_alert_status, beacon_alert_latency_ms, "
+            "confidence, evidence_path, face_blurred, beacon_alert_status, beacon_alert_latency_ms, "
             "person_track_id, status, created_at, event, episode_id, ping_count, "
             "started_at, last_ping_at, ended_at"
             ") VALUES ("
-            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
             ") ON CONFLICT (id) DO UPDATE SET "
             "event = EXCLUDED.event, ping_count = EXCLUDED.ping_count, "
             "last_ping_at = EXCLUDED.last_ping_at, ended_at = EXCLUDED.ended_at, "
@@ -527,7 +529,8 @@ class AlmacenPostgres:
                 registro["id"], registro["camera_id"], registro["zone_id"],
                 registro["detected_at"], registro["violation_type"],
                 registro["violation_types"], registro["confidence"],
-                registro["evidence_path"], registro["beacon_alert"]["status"],
+                registro["evidence_path"], registro["face_blurred"],
+                registro["beacon_alert"]["status"],
                 registro["beacon_alert"]["latency_ms"],
                 registro["person_track_id"], registro["status"],
                 registro["created_at"], registro["event"],
