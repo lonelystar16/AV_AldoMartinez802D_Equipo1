@@ -102,8 +102,11 @@ services:
     image: cascovision/receptor-sim:dev
     environment:
       BALIZA_TOKEN: ${BALIZA_TOKEN:?Falta BALIZA_TOKEN en .env}
-      ZONE_ID: zona-norte
-    # La "pantalla" de la baliza se ve en http://127.0.0.1:8081
+      SIM_ZONE_ID: zona-norte
+      SIM_ZONE_NAME: Zona Norte
+      SIM_BEACON_ID: baliza-01
+    # Estado en http://127.0.0.1:8081/health ("alerting": true mientras suena).
+    # Las ordenes recibidas quedan en /data/alerts.jsonl dentro del contenedor.
     ports:
       - "127.0.0.1:8081:8081"
     restart: unless-stopped

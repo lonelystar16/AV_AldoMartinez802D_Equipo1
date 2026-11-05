@@ -33,13 +33,13 @@ La primera construcción descarga PyTorch para CPU y tarda varios minutos. `comp
 | `api` | `cascovision/api` | `127.0.0.1:8000` (`/health`, `/docs`) | `GET /health` |
 | `edge` | `cascovision/edge` (CPU) | ninguno | `ultimo_cuadro.jpg` actualizado en el último minuto |
 | `rtsp-sim` (dev) | `bluenviron/mediamtx:1.15.0-ffmpeg` | ninguno (`rtsp://rtsp-sim:8554/camara-01` en la red interna) | |
-| `receptor-sim` (dev) | `cascovision/receptor-sim` | `127.0.0.1:8081` (la «pantalla» de la baliza) | |
+| `receptor-sim` (dev) | `cascovision/receptor-sim` | `127.0.0.1:8081` (`GET /health`: `"alerting": true` mientras suena) | |
 
 Los puertos solo se publican en `127.0.0.1`. En la faena se quita el de la API (AD-07).
 
 ## Base de datos
 
-Al crear el volumen vacío, `docker/db/00-migrar.sh` aplica las migraciones en el orden de `db/seed/README.md` (001, 002, 003, 004 completo, 005 claves). Con `CASCOVISION_SEED=1` carga además los catálogos y los 4 incidentes de demostración; en producción debe ir en `0`. Las migraciones **no se repiten** al reiniciar: para recrear la base hay que borrar el volumen.
+Al crear el volumen vacío, `docker/db/00-migrar.sh` aplica las migraciones en el orden de `db/seed/README.md` (001, 002, 003, 004 completo, 005 claves, 006 integridad y auditoría, 007 vistas de reportería). Con `CASCOVISION_SEED=1` carga además los catálogos y los 4 incidentes de demostración; en producción debe ir en `0`. Las migraciones **no se repiten** al reiniciar: para recrear la base hay que borrar el volumen.
 
 ```bash
 docker compose down -v        # BORRA la base de datos y la evidencia
@@ -65,6 +65,6 @@ Respaldo: `docker compose exec db pg_dump -U cascovision cascovision > respaldo.
 - **PyTorch de CPU.** En Linux `uv.lock` resuelve PyTorch contra el índice CUDA (~3 GB de paquetes `nvidia-*`); el Dockerfile los excluye e instala `torch` y `torchvision` del índice CPU, con las versiones del lock. Se agrega `onnxruntime` (no está en el lock) porque el agente carga primero el `.onnx`.
 - **El modelo no va en la imagen:** se monta `./models` en solo lectura. Cambiar el modelo no exige reconstruir.
 - **El layout `Fase 2/Evidencias Proyecto/` se conserva dentro de las imágenes** porque el código ubica su raíz buscando la carpeta `Fase 2`.
-- **`receptor-sim` necesita `src/receptor_sim/`** (tarea 4.6, de Fernando). Hasta que ese commit esté en `qa`, el servicio no se puede construir.
+- **`receptor-sim` corre `src/firmware/receptor-sim/server.py`** (tarea 4.6), que solo usa la biblioteca estándar. Exige un `BALIZA_TOKEN` de al menos 32 caracteres y deja cada orden recibida en `/data/alerts.jsonl`: `docker compose exec receptor-sim cat /data/alerts.jsonl`.
 - **Las variables `JWT_SECRET`, Twilio y SMTP del `.env.example` no se pasan a ningún contenedor:** ningún código las lee todavía.
 - **El entrenamiento del modelo no corre en Docker:** en macOS y Windows un contenedor no ve la GPU. Ver `Yolo/README.md`, sección Entrenamiento.
