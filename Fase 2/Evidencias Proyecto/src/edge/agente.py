@@ -265,11 +265,14 @@ def recargar_zona(monitor: "MonitorZonal", baliza: "ClienteBaliza", cfg: dict,
     """Aplica la zona que el administrador cambió en el dashboard (CU-09, paso 5).
 
     El motor lee `zonas` en cada cuadro, así que basta con reemplazarla. Devuelve
-    True si hubo cambio. La URL de la baliza sigue siendo la del arranque.
+    True si hubo cambio. Solo se edita la zona que el agente ya vigila: si la API
+    ahora ofrece otra (una zona nueva de la misma cámara), se toma al reiniciar,
+    para no cambiar en caliente la zona de los incidentes. La URL de la baliza
+    también es la del arranque.
     """
-    if remota is None:
+    if remota is None or remota["zone_id"] != cfg["zone_id"]:
         return False
-    if remota["zone_id"] == cfg["zone_id"] and remota["zone"]["polygon"] == cfg.get("poligono"):
+    if remota["zone"]["polygon"] == cfg.get("poligono") and remota["zone"]["name"] == cfg.get("zone_name"):
         return False
     aplicar_configuracion_remota(cfg, remota)
     zona = Zona(cfg["poligono"])

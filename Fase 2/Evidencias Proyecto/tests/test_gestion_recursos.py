@@ -123,6 +123,12 @@ def test_el_agente_cambia_la_zona_sin_reiniciarse() -> None:
     assert cfg["baliza"]["url"] == "http://sim"  # la URL local no se pisa
     assert agente.recargar_zona(monitor, baliza, cfg, nueva) is False
 
+    # Otra zona de la misma cámara no reemplaza en caliente a la vigilada.
+    otra = {**nueva, "zone_id": "zona-a", "zone": {"name": "A", "polygon": [[0, 0], [1, 0], [0, 1]]}}
+    antes = monitor.zonas
+    assert agente.recargar_zona(monitor, baliza, cfg, otra) is False
+    assert monitor.zonas == antes and cfg["zone_id"] == "zona-norte"
+
 
 # ---------- PostgreSQL ----------
 

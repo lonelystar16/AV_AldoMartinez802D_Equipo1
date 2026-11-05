@@ -145,6 +145,10 @@ function Zonas({ zonas, camaras, alGuardar }) {
                       alCambiar={(polygon) => f.setForm({ ...f.form, polygon })} />
         </div>
         {!listo && <p className="suave ancho">Marque al menos 3 puntos para guardar la zona.</p>}
+        <p className="suave ancho">
+          El agente vigila una zona por cámara (la primera por ID) y aplica los cambios de esa zona en
+          30 s. Una zona nueva en la misma cámara se toma al reiniciar el agente.
+        </p>
         <Pie f={f} etiqueta="Registrar zona" />
       </form>
     </section>

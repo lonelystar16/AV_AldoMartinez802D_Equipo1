@@ -296,7 +296,9 @@ cámaras y zonas, así que se desactivan con `active: false`. Ese campo queda
 guardado, pero el agente todavía no lo consulta.
 
 El agente Edge vuelve a pedir `GET /edge/config` en cada latido (30 s) y aplica
-el polígono nuevo sin reiniciarse. La URL de la baliza la toma al arrancar.
+sin reiniciarse los cambios de **la zona que ya vigila** (polígono y nombre).
+Vigila una zona por cámara, la primera por `id`, elegida al arrancar: una zona
+nueva de la misma cámara y la URL de la baliza se toman al reiniciar el agente.
 
 En una base con los roles de `db/roles.sql`, el rol de la API necesita los
 permisos de escritura de la 4.19: vuelva a ejecutar `roles.sql` después de
