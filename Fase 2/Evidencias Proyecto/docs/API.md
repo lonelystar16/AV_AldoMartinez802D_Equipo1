@@ -33,7 +33,8 @@ Responde `{"access_token": "...", "token_type": "bearer", "expires_at": "...", "
 El token es un JWT HS256 firmado con `JWT_SECRET` (32+ caracteres; sin él el
 login responde `503`) y dura 8 horas, un turno. Se envía como
 `Authorization: Bearer <token>`. Correo o clave malos responden `401` con el
-mismo mensaje, para no revelar qué correos existen.
+mismo mensaje. El tiempo de respuesta sí puede delatar un correo existente,
+porque bcrypt solo corre cuando el correo coincide (ver *Pendiente*).
 
 Con PostgreSQL la clave se compara en la base con `crypt()` de pgcrypto
 (migración `008_autenticacion.sql`) contra el hash bcrypt de `users`. Con JSON
@@ -413,7 +414,8 @@ registro cuando ByteTrack reparte otro id.
 ## Pendiente
 
 - **Sesiones.** Desactivar un usuario no corta un token ya emitido: sigue
-  válido hasta que vence (8 h). Tampoco hay límite de intentos de login.
+  válido hasta que vence (8 h). Tampoco hay límite de intentos de login, y el
+  tiempo de respuesta del login distingue un correo existente de uno que no.
 - **Edición de usuarios** (cambiar rol, desactivar): hoy solo en la base.
 - **Baliza sin firmware (tarea 4.7).** Hasta que exista, toda baliza se queda
   en `online = false`, `battery_pct = null` y los incidentes terminan en
