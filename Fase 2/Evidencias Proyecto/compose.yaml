@@ -16,6 +16,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-cascovision}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
       CASCOVISION_SEED: ${CASCOVISION_SEED:-0}
+      # Primer usuario del dashboard; solo se usa al crear la base.
+      CASCOVISION_ADMIN_EMAIL: ${CASCOVISION_ADMIN_EMAIL:?Falta CASCOVISION_ADMIN_EMAIL en .env}
+      CASCOVISION_ADMIN_PASSWORD: ${CASCOVISION_ADMIN_PASSWORD:?Falta CASCOVISION_ADMIN_PASSWORD en .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db:/migraciones:ro
@@ -40,6 +43,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-cascovision}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
       EDGE_API_TOKEN: ${EDGE_API_TOKEN:?Falta EDGE_API_TOKEN en .env}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+    volumes:
+      # La evidencia que escribe el agente; la API solo la lee (RF-19).
+      - evidencia:/app/Fase 2/Evidencias Proyecto/incidents:ro
     depends_on:
       db:
         condition: service_healthy

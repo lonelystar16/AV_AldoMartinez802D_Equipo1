@@ -12,6 +12,52 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 | `GET /cameras`, `GET /cameras/{id}`, `GET /zones`, `GET /beacons` | El catálogo de recursos, que administra el dashboard |
 | `GET /edge/config`, `PUT /edge/beacons/{id}/status` | El lado del agente Edge: qué descarga al arrancar y cómo informa a la API |
 | `GET /reports` | El reporte de gestión para el prevencionista |
+| `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users` | Sesión y usuarios del dashboard (tarea 4.16, `tests/test_auth.py`) |
+| `PATCH /incidents/{id}`, `GET /incidents/{id}/evidence` | Revisión del incidente (RF-14) y su imagen difuminada (RF-19) |
+
+## Sesión y roles (RF-16, RF-17)
+
+Todas las rutas exigen sesión salvo `GET /health` (pública) y las del agente
+Edge (`POST /incidents`, `GET /edge/config`, `PUT /edge/beacons/{id}/status`),
+que usan su propio `EDGE_API_TOKEN`. El token del agente no abre las rutas del
+dashboard ni al revés.
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{"email": "admin@cascovision.local", "password": "..."}
+```
+
+Responde `{"access_token": "...", "token_type": "bearer", "expires_at": "...", "user": {...}}`.
+El token es un JWT HS256 firmado con `JWT_SECRET` (32+ caracteres; sin él el
+login responde `503`) y dura 8 horas, un turno. Se envía como
+`Authorization: Bearer <token>`. Correo o clave malos responden `401` con el
+mismo mensaje, para no revelar qué correos existen.
+
+Con PostgreSQL la clave se compara en la base con `crypt()` de pgcrypto
+(migración `008_autenticacion.sql`) contra el hash bcrypt de `users`. Con JSON
+no hay tabla de usuarios: solo entra el administrador de
+`CASCOVISION_ADMIN_EMAIL` / `CASCOVISION_ADMIN_PASSWORD`, pensado para
+desarrollo.
+
+| Rol | Consulta incidentes, recursos, reporte y evidencia | Revisa incidentes (`PATCH`) | Usuarios y `/config` |
+| --- | --- | --- | --- |
+| `supervisor` | Sí | No (`403`) | No (`403`) |
+| `prevencionista` | Sí | Sí | No (`403`) |
+| `admin` | Sí | Sí | Sí |
+
+`POST /users` (solo admin y solo con PostgreSQL) recibe `email`, `full_name`,
+`role`, `password` (12+ caracteres) y `phone` opcional en formato E.164; un
+correo repetido responde `409`.
+
+`PATCH /incidents/{id}` recibe `{"status": "reviewed" | "closed" | "false_positive" | "open", "comment": "..."}`.
+Cerrar o marcar como falso positivo exige comentario (`422` sin él, misma
+regla que la migración 006); repetir el estado actual responde `409`. Con
+PostgreSQL cada cambio queda en `incident_events` con quién lo hizo.
+
+`GET /incidents/{id}/evidence` devuelve el JPEG que guardó el agente, ya con
+los rostros difuminados. Solo entrega archivos dentro de `incidents/`.
 
 Esta versión integra dos implementaciones que se hicieron en paralelo: el
 registro con token y PostgreSQL de la rama `development_02.10.2026`, y las
@@ -230,9 +276,8 @@ Authorization: Bearer <EDGE_API_TOKEN>
 Ruta del lado del agente Edge (I-04). Devuelve la relación **cámara → zona →
 baliza** que el agente necesita para trabajar sin repetir lo que el dashboard ya
 sabe. Exige el token del agente porque revela direcciones de red: un navegador
-que solo pone `GET /edge/config` se queda en `401`, y las rutas `GET` de
-incidentes y recursos siguen siendo las únicas abiertas hasta que exista JWT
-(ver *Pendiente*).
+que solo pone `GET /edge/config` se queda en `401`, aunque tenga sesión del
+dashboard.
 
 ```json
 {
@@ -367,20 +412,14 @@ registro cuando ByteTrack reparte otro id.
 
 ## Pendiente
 
-- **Autenticación de usuarios (RF-17, JWT) y permisos por rol (RNF-07).** Las
-  rutas `GET` de incidentes y recursos quedan abiertas hasta implementarla
-  junto con el dashboard; hoy solo `POST /incidents` y las dos rutas `edge/*`
-  exigen token. Es una de las decisiones abiertas del SRS v0.3 (§4.6).
-- **Acceso a la evidencia.** `evidence_path` es solo una referencia; la API
-  todavía no sirve el archivo.
+- **Sesiones.** Desactivar un usuario no corta un token ya emitido: sigue
+  válido hasta que vence (8 h). Tampoco hay límite de intentos de login.
+- **Edición de usuarios** (cambiar rol, desactivar): hoy solo en la base.
 - **Baliza sin firmware (tarea 4.7).** Hasta que exista, toda baliza se queda
   en `online = false`, `battery_pct = null` y los incidentes terminan en
   `beacon_alert.status = "skipped_offline"`, que es exactamente lo que ocurre.
   El agente ya **está** listo para cambiarlo: envía `PUT /edge/beacons/{id}/status`
   cada 30 segundos y el reporte ya sabe leerlo.
-- **Cambio de estado de un incidente** (revisado, cerrado, falso positivo)
-  desde el dashboard (CU-07). Sin ese endpoint, `por_estado` del reporte solo
-  refleja los que llegan con `status` distinto de `open`.
 
 Cerrado en esta entrega: la tarea **4.15** — `GET /edge/config`,
 `PUT /edge/beacons/{id}/status` y `GET /reports`, con el reporte en los dos

@@ -10,6 +10,30 @@ import pytest
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "src" / "api"))
 
+# Administrador del seed (db/seed/001_catalogos.sql): existe en PostgreSQL, así
+# que incident_events puede referenciarlo.
+USUARIO_PRUEBA = {"id": "d2000000-0000-4000-8000-000000000101",
+                  "email": "admin@example.invalid", "full_name": "Administrador demo",
+                  "role": "admin"}
+
+
+@pytest.fixture(autouse=True)
+def sesion_iniciada(request):
+    """Las pruebas de cada ruta entran como admin sin pasar por el login.
+
+    El login, los roles y el rechazo sin token se prueban en test_auth.py, cuyos
+    casos llevan la marca ``sin_sesion`` para usar la autenticación real.
+    """
+    main = sys.modules.get("app.main")
+    if main is None or request.node.get_closest_marker("sin_sesion"):
+        yield
+        return
+    from app.auth import usuario_actual
+
+    main.app.dependency_overrides[usuario_actual] = lambda: dict(USUARIO_PRUEBA)
+    yield
+    main.app.dependency_overrides.pop(usuario_actual, None)
+
 
 @pytest.fixture
 def db_before_foreign_keys(monkeypatch):

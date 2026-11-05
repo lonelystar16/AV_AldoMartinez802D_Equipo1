@@ -66,5 +66,6 @@ Respaldo: `docker compose exec db pg_dump -U cascovision cascovision > respaldo.
 - **El modelo no va en la imagen:** se monta `./models` en solo lectura. Cambiar el modelo no exige reconstruir.
 - **El layout `Fase 2/Evidencias Proyecto/` se conserva dentro de las imágenes** porque el código ubica su raíz buscando la carpeta `Fase 2`.
 - **`receptor-sim` corre `src/firmware/receptor-sim/server.py`** (tarea 4.6), que solo usa la biblioteca estándar. Exige un `BALIZA_TOKEN` de al menos 32 caracteres y deja cada orden recibida en `/data/alerts.jsonl`: `docker compose exec receptor-sim cat /data/alerts.jsonl`.
-- **Las variables `JWT_SECRET`, Twilio y SMTP del `.env.example` no se pasan a ningún contenedor:** ningún código las lee todavía.
+- **`JWT_SECRET` va a la API y `CASCOVISION_ADMIN_*` a la base**, que crea ese administrador al iniciarse por primera vez. Cambiar la clave después no recrea el usuario: se hace desde la base o con `POST /users`. Twilio y SMTP todavía no se pasan a ningún contenedor (tarea 4.20).
+- **La API monta el volumen `evidencia` en solo lectura** para entregar la imagen difuminada en `GET /incidents/{id}/evidence`.
 - **El entrenamiento del modelo no corre en Docker:** en macOS y Windows un contenedor no ve la GPU. Ver `Yolo/README.md`, sección Entrenamiento.

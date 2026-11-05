@@ -18,7 +18,11 @@ RUN uv sync --frozen --no-dev --no-install-project
 # El codigo busca la carpeta "Fase 2" para ubicar su raiz: se conserva el layout.
 COPY ["Fase 2/Evidencias Proyecto/src/api", "/app/Fase 2/Evidencias Proyecto/src/api"]
 
-RUN useradd --system --uid 10001 --no-create-home app
+# incidents/ con el mismo dueño que en edge.Dockerfile: si la API crea primero el
+# volumen `evidencia`, el agente igual puede escribir en él.
+RUN useradd --system --uid 10001 --no-create-home app \
+    && mkdir -p "/app/Fase 2/Evidencias Proyecto/incidents" \
+    && chown app "/app/Fase 2/Evidencias Proyecto/incidents"
 USER app
 EXPOSE 8000
 CMD ["python", "Fase 2/Evidencias Proyecto/src/api/servidor.py", "--host", "0.0.0.0", "--port", "8000"]
