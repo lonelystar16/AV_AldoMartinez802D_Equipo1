@@ -48,7 +48,25 @@ Al crear el volumen vacío, `docker/db/00-migrar.sh` aplica las migraciones en e
 docker compose down -v        # BORRA la base de datos y la evidencia
 ```
 
-Respaldo: `docker compose exec db pg_dump -U cascovision cascovision > respaldo.sql`
+### Respaldo y restauración (tarea 4.13)
+
+Sin instalar PostgreSQL en el equipo: el volcado se hace dentro del contenedor y se copia con `docker compose cp`, que funciona igual en Windows, macOS y Linux (redirigir con `>` en PowerShell 5 puede dañar un archivo binario). Con otro `POSTGRES_USER` o `POSTGRES_DB` en el `.env`, cambiar `cascovision` en los comandos.
+
+```bash
+# Respaldo de la base (formato custom de pg_dump)
+docker compose exec db pg_dump -Fc -U cascovision -d cascovision -f /tmp/respaldo.dump
+docker compose cp db:/tmp/respaldo.dump ./respaldo.dump
+
+# Respaldo de la evidencia (volumen cascovision_evidencia)
+docker run --rm -v cascovision_evidencia:/evidencia:ro -v "$PWD":/destino alpine:3.20 \
+    tar czf /destino/evidencia.tgz -C /evidencia .
+
+# Restauración: REEMPLAZA los datos actuales de la base
+docker compose cp ./respaldo.dump db:/tmp/respaldo.dump
+docker compose exec db pg_restore --clean --if-exists --no-owner -U cascovision -d cascovision /tmp/respaldo.dump
+```
+
+Probado el 05-11-2026: un respaldo restaurado en una base aparte conserva los mismos conteos de `incidents`, `users`, `incident_events`, `beacons`, `cameras` y `zones`. Para una base fuera de Docker siguen sirviendo `db/backup.ps1` y `db/restore.ps1`, que usan el `pg_dump` del equipo.
 
 ## Comandos útiles
 
