@@ -18,9 +18,10 @@ necesiten un servidor.
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 from uuid import UUID
 
 
@@ -231,11 +232,64 @@ class AlmacenJSON:
         ]
         seleccion.sort(key=lambda d: _instante(d["detected_at"]), reverse=True)
         inicio = (pagina - 1) * limite
+        zonas = {
+            zona["id"]: zona.get("name", zona["id"])
+            for zona in self._cargar_recursos().get("zones", [])
+        }
+        por_zona: dict[str, dict[str, Any]] = {}
+        por_hora: dict[tuple[str, int], dict[str, Any]] = {}
+        por_turno = {
+            shift_id: {
+                "shift_id": shift_id,
+                "shift_name": name,
+                "total_incidentes": 0,
+                "alertas_activas": 0,
+            }
+            for shift_id, name, _, _ in TURNOS
+        }
+        for incidente in seleccion:
+            zone_id = incidente["zone_id"]
+            zona = por_zona.setdefault(zone_id, {
+                "zone_id": zone_id,
+                "zone_name": zonas.get(zone_id, zone_id),
+                "total_incidentes": 0,
+                "alertas_activas": 0,
+            })
+            activa = incidente.get("status") == "open"
+            zona["total_incidentes"] += 1
+            zona["alertas_activas"] += activa
+
+            local = _instante(incidente["detected_at"]).astimezone(ZONA_LOCAL)
+            clave_hora = (local.date().isoformat(), local.hour)
+            hora = por_hora.setdefault(clave_hora, {
+                "fecha_local": clave_hora[0],
+                "hora_local": local.hour,
+                "total_incidentes": 0,
+                "alertas_activas": 0,
+            })
+            hora["total_incidentes"] += 1
+            hora["alertas_activas"] += activa
+            for shift_id, _, desde, hasta in TURNOS:
+                dentro = (
+                    desde <= local.time() < hasta
+                    if desde < hasta
+                    else local.time() >= desde or local.time() < hasta
+                )
+                if dentro:
+                    por_turno[shift_id]["total_incidentes"] += 1
+                    por_turno[shift_id]["alertas_activas"] += activa
+                    break
+        resumen = _resumen(seleccion)
+        resumen.update({
+            "por_zona": sorted(por_zona.values(), key=lambda item: item["zone_id"]),
+            "por_turno": list(por_turno.values()),
+            "por_hora": [por_hora[k] for k in sorted(por_hora)],
+        })
         return {
             # El total y el resumen se calculan sobre toda la selección, no
             # sobre la página: el prevencionista pide totales del período.
             "total": len(seleccion),
-            "resumen": _resumen(seleccion),
+            "resumen": resumen,
             "incidentes": seleccion[inicio : inicio + limite],
         }
 
@@ -246,6 +300,13 @@ class AlmacenJSON:
 # Se repiten aquí porque la API no los puede pedir a PostgreSQL si no hay base.
 ESTADOS_BALIZA = ("alerted", "failed", "skipped_offline")
 ESTADOS_INCIDENTE = ("open", "reviewed", "closed", "false_positive")
+ZONA_LOCAL = ZoneInfo("America/Santiago")
+# shortcut: JSON mirrors the seed shifts; load shift config if JSON shifts become editable.
+TURNOS = (
+    (1, "Mañana", time(6), time(14)),
+    (2, "Tarde", time(14), time(22)),
+    (3, "Noche", time(22), time(6)),
+)
 
 
 def _solapa(dato: dict[str, Any], filtros: dict[str, Any]) -> bool:
@@ -651,6 +712,34 @@ class AlmacenPostgres:
          falsos_positivos, alertadas, fallidas, sin_baliza,
          duracion_media) = filas[0]
 
+        por_zona = self._ejecutar(
+            "SELECT z.id, z.name, count(i.id), "
+            "count(i.id) FILTER (WHERE i.status = 'open') "
+            f"FROM (SELECT * FROM incidents {where}) i "
+            "JOIN zones z ON z.id = i.zone_id "
+            "GROUP BY z.id, z.name ORDER BY z.id",
+            tuple(parametros),
+        )
+        por_turno = self._ejecutar(
+            "SELECT s.id, s.name, count(i.id), "
+            "count(i.id) FILTER (WHERE i.status = 'open') "
+            f"FROM shifts s LEFT JOIN (SELECT * FROM incidents {where}) i ON CASE "
+            "WHEN s.starts_at < s.ends_at THEN "
+            "(i.detected_at AT TIME ZONE 'America/Santiago')::time >= s.starts_at "
+            "AND (i.detected_at AT TIME ZONE 'America/Santiago')::time < s.ends_at "
+            "ELSE (i.detected_at AT TIME ZONE 'America/Santiago')::time >= s.starts_at "
+            "OR (i.detected_at AT TIME ZONE 'America/Santiago')::time < s.ends_at END "
+            "GROUP BY s.id, s.name ORDER BY s.id",
+            tuple(parametros),
+        )
+        por_hora = self._ejecutar(
+            "SELECT (detected_at AT TIME ZONE 'America/Santiago')::date, "
+            "date_part('hour', detected_at AT TIME ZONE 'America/Santiago')::smallint, "
+            "count(*), count(*) FILTER (WHERE status = 'open') "
+            f"FROM incidents {where} GROUP BY 1, 2 ORDER BY 1, 2",
+            tuple(parametros),
+        )
+
         pagina_filas = self._ejecutar(
             f"SELECT {COLUMNAS} FROM incidents {where}"
             "ORDER BY detected_at DESC LIMIT %s OFFSET %s",
@@ -678,6 +767,21 @@ class AlmacenPostgres:
                     "failed": fallidas,
                     "skipped_offline": sin_baliza,
                 },
+                "por_zona": [
+                    {"zone_id": row[0], "zone_name": row[1],
+                     "total_incidentes": row[2], "alertas_activas": row[3]}
+                    for row in por_zona
+                ],
+                "por_turno": [
+                    {"shift_id": row[0], "shift_name": row[1],
+                     "total_incidentes": row[2], "alertas_activas": row[3]}
+                    for row in por_turno
+                ],
+                "por_hora": [
+                    {"fecha_local": row[0].isoformat(), "hora_local": row[1],
+                     "total_incidentes": row[2], "alertas_activas": row[3]}
+                    for row in por_hora
+                ],
             },
             "incidentes": [_desde_fila(fila) for fila in pagina_filas],
         }

@@ -305,6 +305,26 @@ def test_vistas_de_reporteria_en_hora_local(seeded_db):
     assert db.execute("SELECT sum(total_incidentes) FROM incidentes_por_hora").fetchone()[0] == 4
 
 
+def test_reporte_postgres_agrupa_y_aplica_filtros(seeded_db):
+    from app.almacen import AlmacenPostgres
+
+    almacen = AlmacenPostgres()
+    reporte = almacen.reportar({}, 1, 20)
+    resumen = reporte["resumen"]
+    assert sum(grupo["total_incidentes"] for grupo in resumen["por_zona"]) == reporte["total"]
+    assert sum(grupo["total_incidentes"] for grupo in resumen["por_turno"]) == reporte["total"]
+    assert sum(grupo["total_incidentes"] for grupo in resumen["por_hora"]) == reporte["total"]
+    assert len(resumen["por_turno"]) == 3
+
+    filtrado = almacen.reportar({"zone_id": "zona-norte"}, 1, 20)
+    assert sum(
+        grupo["total_incidentes"] for grupo in filtrado["resumen"]["por_zona"]
+    ) == filtrado["total"]
+    assert sum(
+        grupo["total_incidentes"] for grupo in filtrado["resumen"]["por_hora"]
+    ) == filtrado["total"]
+
+
 def test_face_blurred_y_updated_at(seeded_db):
     db = seeded_db
     old = db.execute("SELECT updated_at FROM incidents WHERE person_track_id=7").fetchone()[0]
@@ -340,7 +360,7 @@ def test_roles_sql_concede_permisos_minimos(postgres_db):
     try:
         db.execute(source, prepare=False)
         assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'INSERT')", (names["cascovision"],)).fetchone()[0]
-        for table in ("incidents", "cameras", "zones", "beacons"):
+        for table in ("incidents", "cameras", "zones", "beacons", "shifts"):
             assert db.execute(
                 "SELECT has_table_privilege(%s, %s, 'SELECT')",
                 (names["cascovision"], table),
@@ -366,6 +386,7 @@ def test_roles_sql_concede_permisos_minimos(postgres_db):
                 db.execute("SELECT id FROM cameras LIMIT 1").fetchall()
                 db.execute("SELECT id FROM zones LIMIT 1").fetchall()
                 db.execute("SELECT id FROM beacons LIMIT 1").fetchall()
+                db.execute("SELECT id FROM shifts LIMIT 1").fetchall()
                 db.execute("UPDATE beacons SET online = online WHERE id = 'baliza-01'")
             finally:
                 db.execute("RESET ROLE")
