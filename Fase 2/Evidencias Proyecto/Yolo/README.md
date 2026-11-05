@@ -11,7 +11,9 @@
 > 🚧 **Detector de 5 clases en producción.** La corrida `train-10` cerró por
 > *early stopping* en la época 94, con la mejor época en la 64. El modelo
 > entregado es [`models/cascovision_yolo26s.pt`](../models/). La sección 3.5
-> recoge sus métricas y la comparación con la línea base `train-9`.
+> recoge sus métricas y la comparación con la línea base `train-9`. El
+> reentrenamiento `train-11` (mixup 0,1, 05-11-2026) empató con `train-10` y no
+> lo reemplazó (ver 3.5).
 
 ---
 
@@ -318,6 +320,32 @@ El techo de ~0,88 de mAP@0,5 se explica por dos factores:
 
 La línea de trabajo pendiente es atacar esa clase: más ejemplos de `no_vest`, o
 una versión del dataset que marque explícitamente el torso.
+
+#### `train-11`: mixup 0,1 (tarea 4.2, 05-11-2026)
+
+Misma configuración que `train-10` más `--mixup 0.1`, en Docker con la RTX 3060
+Laptop (6 GB, AutoBatch eligió lotes de 4; el lote nominal de 64 se mantiene por
+acumulación de gradientes). Cerró por *early stopping* en la época 94 tras 4,5 h,
+con la mejor época en la 64, igual que `train-10`. Evaluadas las dos con el mismo
+protocolo (`Yolo/modelamiento/evaluacion.py` y `val` de Ultralytics, `conf` 0,25):
+
+| Métrica | `train-10` | `train-11` |
+| --- | --- | --- |
+| mAP@0,5 validación (732 imágenes) | **0,851** | 0,849 |
+| mAP@0,5:0,95 validación | **0,580** | 0,573 |
+| mAP@0,5 prueba (129 imágenes) | 0,877 | **0,892** |
+| mAP@0,5 por clase, validación (helmet / no_helmet / no_vest) | 0,809 / **0,869** / **0,828** | **0,818** / 0,853 / 0,817 |
+| mAP@0,5 por clase, prueba (helmet / no_helmet / no_vest) | 0,833 / 0,846 / **0,843** | **0,871** / **0,864** / 0,840 |
+| Regla «¿lleva casco?», prueba (P / R) | 0,986 / **0,947** | 0,986 / 0,940 |
+| Regla «¿lleva chaleco?», prueba (P / R) | **1,000** / 0,887 | 0,986 / **0,908** |
+
+**Resultado: empate.** `train-11` mejora en el conjunto de prueba, pero es 6 veces
+más chico que el de validación, donde queda apenas por debajo; por clase y por
+regla los cambios van en las dos direcciones. Mixup no rompió el techo de ~0,85
+en validación, así que el sobreajuste no era la única causa. **Se mantiene
+`train-10` como modelo entregado.** Ninguno cumple el mAP@0,5 ≥ 0,90 del RNF-05;
+los dos cumplen el *recall* ≥ 0,85 por regla. La corrida queda en
+`Yolo/runs/detect/train-11/` (no versionada).
 
 ### 3.4 Diagnóstico: sobreajuste
 
