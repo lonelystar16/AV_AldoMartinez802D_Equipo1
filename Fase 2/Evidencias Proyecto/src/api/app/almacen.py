@@ -84,6 +84,9 @@ class Almacen(Protocol):
 
     def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]: ...
 
+    # Cambia solo las claves presentes en `cambios`; None si el usuario no existe.
+    def editar_usuario(self, user_id: str, cambios: dict[str, Any]) -> dict[str, Any] | None: ...
+
     # --- avisos por correo (RF-12) ---
     def destinatarios_avisos(self) -> list[dict[str, Any]]: ...
 
@@ -383,6 +386,9 @@ class AlmacenJSON:
         return [admin] if admin else []
 
     def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
+        raise AlmacenNoDisponible("User management requires PostgreSQL storage")
+
+    def editar_usuario(self, user_id: str, cambios: dict[str, Any]) -> dict[str, Any] | None:
         raise AlmacenNoDisponible("User management requires PostgreSQL storage")
 
     # Sin base no hay prevencionistas registrados: no se avisa a nadie.
@@ -1010,6 +1016,18 @@ class AlmacenPostgres:
              datos["password"], datos["role"]),
         )
         return _usuario_desde_fila(filas[0])
+
+    def editar_usuario(self, user_id: str, cambios: dict[str, Any]) -> dict[str, Any] | None:
+        columnas = [c for c in ("full_name", "phone", "role", "active") if c in cambios]
+        if not columnas:
+            filas = self._ejecutar(f"SELECT {COLUMNAS_USUARIO} FROM users WHERE id = %s", (user_id,))
+        else:
+            asignaciones = ", ".join(f"{c} = %s" for c in columnas)  # nombres de la lista fija
+            filas = self._ejecutar(
+                f"UPDATE users SET {asignaciones} WHERE id = %s RETURNING {COLUMNAS_USUARIO}",
+                (*(cambios[c] for c in columnas), user_id),
+            )
+        return _usuario_desde_fila(filas[0]) if filas else None
 
     # --- avisos ---
     def destinatarios_avisos(self) -> list[dict[str, Any]]:

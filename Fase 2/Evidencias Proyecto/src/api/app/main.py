@@ -426,6 +426,48 @@ def create_user(datos: UserCreate, store: almacen.Almacen = Depends(get_store)) 
     return User(**_store_call(store.crear_usuario, datos.model_dump()))
 
 
+class UserUpdate(BaseModel):
+    """Solo los campos enviados cambian; ``phone: null`` borra el teléfono."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    full_name: str | None = Field(default=None, min_length=1, max_length=120)
+    phone: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{1,14}$")
+    role: Role | None = None
+    active: bool | None = None
+
+    @model_validator(mode="after")
+    def campos_obligatorios_no_nulos(self):
+        for campo in ("full_name", "role", "active"):
+            if campo in self.model_fields_set and getattr(self, campo) is None:
+                raise ValueError(f"{campo} cannot be null")
+        return self
+
+
+@app.patch("/users/{user_id}", response_model=User)
+def update_user(
+    user_id: UUID,
+    datos: UserUpdate,
+    admin: dict = Depends(requiere_rol("admin")),
+    store: almacen.Almacen = Depends(get_store),
+) -> User:
+    """Edición por el administrador (CU-11): nombre, teléfono, rol y activo.
+
+    El correo y la clave no se cambian aquí. El administrador no puede
+    desactivarse ni quitarse el rol a sí mismo: así siempre queda uno activo.
+    """
+
+    cambios = datos.model_dump(include=datos.model_fields_set)
+    if str(user_id) == admin["id"] and (
+        cambios.get("active") is False or cambios.get("role", "admin") != "admin"
+    ):
+        raise HTTPException(status_code=409, detail="You cannot deactivate or demote yourself")
+    usuario = _store_call(store.editar_usuario, str(user_id), cambios)
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return User(**usuario)
+
+
 @app.post("/incidents", status_code=201, response_model=IncidentCreated)
 def create_incident(
     incident: IncidentCreate,

@@ -27,6 +27,8 @@ DO $$ DECLARE schema_name TEXT := current_schema(); BEGIN
     -- perfil pero nunca password_hash: el login pasa por autenticar_usuario() (008).
     EXECUTE format('GRANT SELECT (id, email, full_name, phone, role, active, last_login_at) ON users TO cascovision');
     EXECUTE format('GRANT INSERT (id, email, full_name, phone, password_hash, role, active) ON users TO cascovision');
+    -- Edición desde el dashboard (tarea 4.19): sin tocar correo ni clave.
+    EXECUTE format('GRANT UPDATE (full_name, phone, role, active) ON users TO cascovision');
     EXECUTE format('GRANT EXECUTE ON FUNCTION autenticar_usuario(TEXT, TEXT) TO cascovision');
     EXECUTE format('GRANT SELECT, INSERT ON incident_events TO cascovision');
     EXECUTE format('GRANT USAGE ON SEQUENCE incident_events_id_seq TO cascovision');

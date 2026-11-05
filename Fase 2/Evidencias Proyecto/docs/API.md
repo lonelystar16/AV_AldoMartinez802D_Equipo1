@@ -14,7 +14,7 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 | `GET /edge/config`, `PUT /edge/beacons/{id}/status` | El lado del agente Edge: qué descarga al arrancar y cómo informa a la API |
 | `GET /reports` | El reporte de gestión para el prevencionista |
 | `GET /reports/export` | El mismo reporte en PDF o Excel (tarea 4.12, `tests/test_exportar.py`) |
-| `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users` | Sesión y usuarios del dashboard (tarea 4.16, `tests/test_auth.py`) |
+| `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users`, `PATCH /users/{id}` | Sesión y usuarios del dashboard (tareas 4.16 y 4.19, `tests/test_auth.py`, `tests/test_usuarios.py`) |
 | `PATCH /incidents/{id}`, `GET /incidents/{id}/evidence` | Revisión del incidente (RF-14) y su imagen difuminada (RF-19) |
 
 ## Sesión y roles (RF-16, RF-17)
@@ -53,6 +53,13 @@ desarrollo.
 `POST /users` (solo admin y solo con PostgreSQL) recibe `email`, `full_name`,
 `role`, `password` (12+ caracteres) y `phone` opcional en formato E.164; un
 correo repetido responde `409`.
+
+`PATCH /users/{id}` (solo admin y solo con PostgreSQL) cambia `full_name`,
+`phone` (`null` lo borra), `role` y `active`; solo los campos enviados. El
+correo y la contraseña no se editan. Un usuario desactivado no puede iniciar
+sesión ni recibe avisos por correo. El administrador no puede desactivarse ni
+quitarse el rol a sí mismo (`409`), así que siempre queda uno activo. Un id
+desconocido responde `404`.
 
 `PATCH /incidents/{id}` recibe `{"status": "reviewed" | "closed" | "false_positive" | "open", "comment": "..."}`.
 Cerrar o marcar como falso positivo exige comentario (`422` sin él, misma
@@ -496,7 +503,8 @@ Latin-1: un emoji en un nombre se ve como `?`.
 - **Sesiones.** Desactivar un usuario no corta un token ya emitido: sigue
   válido hasta que vence (8 h). Tampoco hay límite de intentos de login, y el
   tiempo de respuesta del login distingue un correo existente de uno que no.
-- **Edición de usuarios** (cambiar rol, desactivar): hoy solo en la base.
+- **Contraseñas:** el administrador no puede cambiar ni restablecer la clave de
+  otro usuario; hoy se hace en la base.
 - **Baliza sin firmware (tarea 4.7).** Hasta que exista, toda baliza se queda
   en `online = false`, `battery_pct = null` y los incidentes terminan en
   `beacon_alert.status = "skipped_offline"`, que es exactamente lo que ocurre.
