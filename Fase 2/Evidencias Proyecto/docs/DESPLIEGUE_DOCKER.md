@@ -81,7 +81,7 @@ Probado el 05-11-2026: un respaldo restaurado en una base aparte conserva los mi
 
 - **El video de `rtsp-sim` no se versiona** (`.gitignore` excluye `*.mp4`): hay que copiarlo a mano.
 - **El dashboard llega a la API por nginx** (`docker/dashboard/nginx.conf`): el navegador solo ve `127.0.0.1:8080` y `/api/` se reenvía al servicio `api` por la red interna, así que la API no necesita CORS.
-- **El agente no espera a la API.** Si la API aún no responde al arrancar, usa `docker/edge/config.json` (AD-04); por eso en un arranque en frío el registro dice «la API no respondió GET /edge/config». Para que lea la configuración de la API, basta `docker compose restart edge` cuando la API ya está sana.
+- **El agente no espera a la API.** Si la API aún no responde al arrancar, usa `docker/edge/config.json` (AD-04); por eso en un arranque en frío el registro dice «la API no respondió GET /edge/config». El agente reintenta en cada latido de 30 s y, cuando la API responde, empieza a informar el estado de la baliza; la zona y el polígono de la base se toman al reiniciarlo (`docker compose restart edge`).
 - **Si la cámara no está lista al arrancar, el agente termina y `restart: unless-stopped` lo reintenta.**
 - **PyTorch de CPU.** En Linux `uv.lock` resuelve PyTorch contra el índice CUDA (~3 GB de paquetes `nvidia-*`); el Dockerfile los excluye e instala `torch` y `torchvision` del índice CPU, con las versiones del lock. Se agrega `onnxruntime` (no está en el lock) porque el agente carga primero el `.onnx`.
 - **El modelo no va en la imagen:** se monta `./models` en solo lectura. Cambiar el modelo no exige reconstruir.
