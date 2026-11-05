@@ -3,9 +3,8 @@
 # vacio). La imagen de PostgreSQL ejecuta este script una sola vez, con el
 # usuario y la base de POSTGRES_USER y POSTGRES_DB.
 #
-# El orden es el de db/seed/README.md. No basta con recorrer db/migrations/ en
-# orden alfabetico: 004_modelo_recursos.sql y 005_indices_incidentes.sql son
-# alternativas anteriores que chocan con 004_modelo_completo.sql.
+# El orden es el de db/seed/README.md: los catalogos demo van entre la 004 y
+# la 005, porque la 005 agrega las FK de incidents hacia cameras y zones.
 #
 # CASCOVISION_SEED=1 carga los catalogos y los incidentes de demostracion
 # (camara-01, zona-norte, baliza-01; todo desactivado). No usar en produccion.
@@ -23,4 +22,6 @@ aplicar migrations/004_modelo_completo.sql
 [ "${CASCOVISION_SEED:-0}" = "1" ] && aplicar seed/001_catalogos.sql
 aplicar migrations/005_claves_incidentes.sql
 [ "${CASCOVISION_SEED:-0}" = "1" ] && aplicar seed/002_incidentes_demo.sql
+aplicar migrations/006_integridad_y_auditoria.sql
+aplicar migrations/007_vistas_reporteria.sql
 echo "[migrar] listo"
