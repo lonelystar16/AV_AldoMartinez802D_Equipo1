@@ -13,6 +13,7 @@ const dia = (valor, fin) => (valor ? new Date(`${valor}T${fin ? "23:59:59" : "00
 export default function Historial({ abrir, version }) {
   const [filtros, setFiltros] = useState(VACIO);
   const [pagina, setPagina] = useState(1);
+  const [descarga, setDescarga] = useState({ formato: "", error: "" });
   const catalogo = usarDatos(() => Promise.all([api("/cameras"), api("/zones")]), []);
   const { datos, error } = usarDatos(
     () => api("/reports" + consulta({
@@ -29,6 +30,25 @@ export default function Historial({ abrir, version }) {
     setPagina(1);
   };
   const paginas = datos ? Math.max(1, Math.ceil(datos.total / POR_PAGINA)) : 1;
+
+  // El reporte en archivo usa los mismos filtros que la tabla (RF-15).
+  async function descargar(formato) {
+    setDescarga({ formato, error: "" });
+    try {
+      const blob = await api("/reports/export" + consulta({
+        ...filtros, desde: dia(filtros.desde, false), hasta: dia(filtros.hasta, true), formato,
+      }), { binario: true });
+      const url = URL.createObjectURL(blob);
+      const enlace = Object.assign(document.createElement("a"), {
+        href: url, download: `reporte_cascovision.${formato}`,
+      });
+      enlace.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setDescarga({ formato: "", error: "" });
+    } catch (e) {
+      setDescarga({ formato: "", error: e.message });
+    }
+  }
 
   return (
     <div className="rejilla">
@@ -50,6 +70,15 @@ export default function Historial({ abrir, version }) {
           <button className="secundario" onClick={() => { setFiltros(VACIO); setPagina(1); }}>
             Limpiar
           </button>
+        </div>
+        <div className="acciones exportar">
+          <button onClick={() => descargar("pdf")} disabled={Boolean(descarga.formato)}>
+            {descarga.formato === "pdf" ? "Generando…" : "Descargar PDF"}
+          </button>
+          <button onClick={() => descargar("xlsx")} disabled={Boolean(descarga.formato)}>
+            {descarga.formato === "xlsx" ? "Generando…" : "Descargar Excel"}
+          </button>
+          {descarga.error && <p className="error" role="alert">{descarga.error}</p>}
         </div>
       </section>
 

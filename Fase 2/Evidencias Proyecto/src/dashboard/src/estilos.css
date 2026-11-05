@@ -140,7 +140,7 @@ dd { margin: 0; }
 }
 
 /* Configuración (CU-09): formularios y editor del polígono de la zona */
-.panel form.filtros { margin-top: 14px; }
+.panel form.filtros, .acciones.exportar { margin-top: 14px; }
 .acciones { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .casilla { display: flex; align-items: center; gap: 8px; }
 .casilla input { width: auto; }

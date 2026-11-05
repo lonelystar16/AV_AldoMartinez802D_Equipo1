@@ -9,13 +9,13 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi import Path as RutaParam
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import (
     BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator,
 )
 
-from . import almacen, auth, config
+from . import almacen, auth, config, exportar
 from .auth import requiere_rol, usuario_actual
 
 # Carga el .env del proyecto si existe. Las variables ya presentes en el
@@ -753,8 +753,7 @@ def _zona_horaria_requerida(nombre: str, valor: datetime | None) -> None:
         )
 
 
-@app.get("/reports", response_model=Reporte, dependencies=[Depends(usuario_actual)])
-def get_report(
+def filtros_reporte(
     desde: datetime | None = None,
     hasta: datetime | None = None,
     camera_id: str | None = None,
@@ -762,6 +761,42 @@ def get_report(
     violation_type: ViolationType | None = None,
     status: IncidentStatus | None = None,
     beacon_status: Literal["alerted", "failed", "skipped_offline"] | None = None,
+) -> dict:
+    """Filtros comunes del reporte y de su exportación, ya validados."""
+
+    _zona_horaria_requerida("desde", desde)
+    _zona_horaria_requerida("hasta", hasta)
+    if desde is not None and hasta is not None and desde > hasta:
+        raise HTTPException(
+            status_code=422, detail="'desde' must not be after 'hasta'"
+        )
+    return {
+        campo: valor
+        for campo, valor in {
+            "desde": desde,
+            "hasta": hasta,
+            "camera_id": camera_id,
+            "zone_id": zone_id,
+            "violation_type": violation_type,
+            "status": status,
+            "beacon_status": beacon_status,
+        }.items()
+        if valor is not None
+    }
+
+
+def _reporte(store: almacen.Almacen, filtros: dict, pagina: int, limite: int) -> Reporte:
+    datos = _store_call(store.reportar, filtros, pagina, limite)
+    return Reporte(
+        total=datos["total"],
+        resumen=ReporteResumen(**datos["resumen"]),
+        incidentes=[_fila_reporte(d) for d in datos["incidentes"]],
+    )
+
+
+@app.get("/reports", response_model=Reporte, dependencies=[Depends(usuario_actual)])
+def get_report(
+    filtros: dict = Depends(filtros_reporte),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     store: almacen.Almacen = Depends(get_store),
@@ -781,29 +816,40 @@ def get_report(
     correcto, no es un fallo del agente.
     """
 
-    _zona_horaria_requerida("desde", desde)
-    _zona_horaria_requerida("hasta", hasta)
-    if desde is not None and hasta is not None and desde > hasta:
-        raise HTTPException(
-            status_code=422, detail="'desde' must not be after 'hasta'"
-        )
+    return _reporte(store, filtros, page, limit)
 
-    filtros = {
-        campo: valor
-        for campo, valor in {
-            "desde": desde,
-            "hasta": hasta,
-            "camera_id": camera_id,
-            "zone_id": zone_id,
-            "violation_type": violation_type,
-            "status": status,
-            "beacon_status": beacon_status,
-        }.items()
-        if valor is not None
+
+# shortcut: tope fijo de filas por archivo; paginar el archivo si un periodo real lo supera.
+LIMITE_EXPORTACION = 5000
+TIPOS_EXPORTACION = {
+    "pdf": "application/pdf",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+@app.get("/reports/export", dependencies=[Depends(usuario_actual)])
+def export_report(
+    formato: Literal["pdf", "xlsx"],
+    filtros: dict = Depends(filtros_reporte),
+    store: almacen.Almacen = Depends(get_store),
+) -> Response:
+    """El mismo reporte en PDF o Excel, con toda la selección (RF-15, CU-08).
+
+    Incluye los totales, las agrupaciones por zona, turno y hora, y una fila
+    por incidente con la hora de Santiago. Si la selección supera
+    ``LIMITE_EXPORTACION`` filas, el archivo lo advierte.
+    """
+
+    reporte = _reporte(store, filtros, 1, LIMITE_EXPORTACION)
+    nombres = {
+        "camaras": {c["id"]: c["name"] for c in _store_call(store.listar_camaras)},
+        "zonas": {z["id"]: z["name"] for z in _store_call(store.listar_zonas)},
     }
-    datos = _store_call(store.reportar, filtros, page, limit)
-    return Reporte(
-        total=datos["total"],
-        resumen=ReporteResumen(**datos["resumen"]),
-        incidentes=[_fila_reporte(d) for d in datos["incidentes"]],
+    generar = exportar.a_pdf if formato == "pdf" else exportar.a_excel
+    contenido = generar(reporte.model_dump(), nombres, filtros)
+    nombre = f"reporte_cascovision_{datetime.now(almacen.ZONA_LOCAL):%Y%m%d_%H%M}.{formato}"
+    return Response(
+        contenido,
+        media_type=TIPOS_EXPORTACION[formato],
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )

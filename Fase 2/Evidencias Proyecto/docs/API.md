@@ -13,6 +13,7 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 | `PUT /cameras/{id}`, `PUT /zones/{id}`, `PUT /beacons/{id}` | Alta y edición de esos recursos por el administrador (tarea 4.19, `tests/test_gestion_recursos.py`) |
 | `GET /edge/config`, `PUT /edge/beacons/{id}/status` | El lado del agente Edge: qué descarga al arrancar y cómo informa a la API |
 | `GET /reports` | El reporte de gestión para el prevencionista |
+| `GET /reports/export` | El mismo reporte en PDF o Excel (tarea 4.12, `tests/test_exportar.py`) |
 | `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users` | Sesión y usuarios del dashboard (tarea 4.16, `tests/test_auth.py`) |
 | `PATCH /incidents/{id}`, `GET /incidents/{id}/evidence` | Revisión del incidente (RF-14) y su imagen difuminada (RF-19) |
 
@@ -448,6 +449,27 @@ seleccion completa que dejan los filtros, no sobre la pagina. Agrupan por
 y `por_turno` respeta los horarios de `shifts`, incluido el turno que cruza
 medianoche. Cada grupo informa `total_incidentes` y `alertas_activas` (estado
 de revision `open`).
+
+### `GET /reports/export`
+
+```http
+GET /reports/export?formato=pdf&desde=2026-10-01T00:00:00-03:00&zone_id=zona-norte
+Authorization: Bearer <token>
+```
+
+Descarga el reporte como archivo, con cualquier rol (CU-08). `formato` es `pdf`
+o `xlsx`, y acepta los mismos filtros que `GET /reports` (`desde`, `hasta`,
+`camera_id`, `zone_id`, `violation_type`, `status`, `beacon_status`) con las
+mismas validaciones. No pagina: trae toda la selección hasta 5.000 incidentes, y
+si hay más el archivo lo advierte.
+
+El archivo dice qué filtros se aplicaron e incluye los totales, las agrupaciones
+por zona, turno y hora, y una fila por incidente: inicio, fin, duración, cámara,
+zona, infracciones, confianza, resultado de la baliza y estado de la revisión.
+Las horas van en hora de Santiago. El Excel trae dos hojas (*Resumen* e
+*Incidentes*, con filtros de columna), y un nombre que empiece con `=` queda
+como texto, no como fórmula. El PDF usa las fuentes base, que solo tienen
+Latin-1: un emoji en un nombre se ve como `?`.
 
 ## Reglas comunes
 
