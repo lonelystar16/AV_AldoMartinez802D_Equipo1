@@ -10,6 +10,7 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 | --- | --- |
 | `GET /health`, `POST /incidents`, `GET /incidents`, `GET /incidents/{incident_id}` | El registro de incidentes, que es historia y solo crece |
 | `GET /cameras`, `GET /cameras/{id}`, `GET /zones`, `GET /beacons` | El catálogo de recursos, que administra el dashboard |
+| `PUT /cameras/{id}`, `PUT /zones/{id}`, `PUT /beacons/{id}` | Alta y edición de esos recursos por el administrador (tarea 4.19, `tests/test_gestion_recursos.py`) |
 | `GET /edge/config`, `PUT /edge/beacons/{id}/status` | El lado del agente Edge: qué descarga al arrancar y cómo informa a la API |
 | `GET /reports` | El reporte de gestión para el prevencionista |
 | `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users` | Sesión y usuarios del dashboard (tarea 4.16, `tests/test_auth.py`) |
@@ -252,9 +253,8 @@ Detalle de un incidente. `200 OK`, o `404 Not Found` si no existe.
 
 ### Recursos: `GET /cameras`, `GET /zones`, `GET /beacons`
 
-Catálogo de lectura para el dashboard. Crear y editar recursos **no es trabajo
-de esta API**: el administrador lo carga con `db/seed.sql` o directamente en la
-base.
+Catálogo de lectura para el dashboard, con cualquier rol. El administrador los
+crea y edita con `PUT` (ver más abajo).
 
 | Ruta | Qué devuelve |
 | --- | --- |
@@ -266,6 +266,40 @@ base.
 
 `online` en `false` no es un error: es el estado real de una baliza que aún no
 tiene firmware (tarea 4.7) o que está apagada.
+
+### Alta y edición: `PUT /cameras/{id}`, `PUT /zones/{id}`, `PUT /beacons/{id}`
+
+Solo el administrador (`403` para los demás roles). `PUT` crea el recurso si el
+`id` no existe y lo reemplaza si existe, y responde `200` con el recurso
+guardado. Requiere PostgreSQL: con almacenamiento JSON responde `503`.
+
+```http
+PUT /zones/zona-patio
+Authorization: Bearer <token de admin>
+Content-Type: application/json
+
+{"camera_id": "camara-01", "name": "Patio", "polygon": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9]],
+ "suppression_s": 60, "active": true}
+```
+
+| Recurso | Campos | Reglas (`422` si no se cumplen) |
+| --- | --- | --- |
+| Cámara | `name`, `rtsp_url`, `location`, `active` | URL `rtsp://` o `rtsps://` **sin usuario ni clave** (las credenciales van en `CAMARA_FUENTE` del agente) |
+| Zona | `camera_id`, `name`, `polygon`, `suppression_s`, `active` | 3 a 50 puntos con `x` e `y` entre 0 y 1 (relativos al cuadro, como los usa el agente); supresión de 10 a 600 s; la cámara debe existir |
+| Baliza | `name`, `ip`, `zone_id`, `duration_s`, `sound`, `message` | IP válida; duración de 1 a 30 s; `sound` es `siren`, `voice` o `beep`; mensaje de hasta 40 caracteres; la zona debe existir |
+
+El `id` va en la ruta: minúsculas, dígitos y guiones, hasta 40 caracteres. Una
+IP o una zona que ya usa otra baliza responden `409` (`Beacon IP is already in
+use`, `Zone already has a beacon`). No hay `DELETE`: los incidentes apuntan a
+cámaras y zonas, así que se desactivan con `active: false`. Ese campo queda
+guardado, pero el agente todavía no lo consulta.
+
+El agente Edge vuelve a pedir `GET /edge/config` en cada latido (30 s) y aplica
+el polígono nuevo sin reiniciarse. La URL de la baliza la toma al arrancar.
+
+En una base con los roles de `db/roles.sql`, el rol de la API necesita los
+permisos de escritura de la 4.19: vuelva a ejecutar `roles.sql` después de
+actualizar.
 
 ### `GET /edge/config`
 

@@ -18,6 +18,11 @@ DO $$ DECLARE schema_name TEXT := current_schema(); BEGIN
     EXECUTE format('GRANT SELECT, INSERT, UPDATE ON incidents TO cascovision');
     EXECUTE format('GRANT SELECT ON cameras, zones, beacons, shifts TO cascovision');
     EXECUTE format('GRANT UPDATE (online, battery_pct, last_seen_at) ON beacons TO cascovision');
+    -- Alta y edición de cámaras, zonas y balizas desde el dashboard (tarea 4.19).
+    -- Sin DELETE: se desactivan, porque los incidentes las referencian.
+    EXECUTE format('GRANT INSERT (id, name, rtsp_url, location, active), UPDATE (name, rtsp_url, location, active) ON cameras TO cascovision');
+    EXECUTE format('GRANT INSERT (id, camera_id, name, polygon, suppression_s, active), UPDATE (camera_id, name, polygon, suppression_s, active) ON zones TO cascovision');
+    EXECUTE format('GRANT INSERT (id, zone_id, name, ip, duration_s, sound, message), UPDATE (zone_id, name, ip, duration_s, sound, message) ON beacons TO cascovision');
     -- Login, alta de usuarios y revisión de incidentes (tarea 4.16). La API lee el
     -- perfil pero nunca password_hash: el login pasa por autenticar_usuario() (008).
     EXECUTE format('GRANT SELECT (id, email, full_name, phone, role, active, last_login_at) ON users TO cascovision');

@@ -211,9 +211,9 @@ def guardar_cuadro(frame, carpeta: Path) -> None:
 def _configuracion_remota(cfg: dict, token: str) -> dict | None:
     """Descarga la configuración del agente desde `GET /edge/config` (I-04).
 
-    Se pregunta **una sola vez**, al arrancar: a un cuadro por segundo no
-    tiene sentido volver a preguntar, y un borde no puede colgarse del
-    arranque porque la API esté lenta — de ahí el mismo timeout corto que usa
+    Se pregunta al arrancar y en cada latido de 30 s, no en cada cuadro: así
+    toma las zonas que edita el dashboard sin cargar la API. Un borde no puede
+    colgarse porque la API esté lenta — de ahí el mismo timeout corto que usa
     la baliza.
 
     Devuelve None si la API no responde o si no conoce la cámara que este
@@ -258,6 +258,25 @@ def aplicar_configuracion_remota(cfg: dict, remota: dict) -> None:
     cfg.setdefault("baliza", {})
     cfg["baliza"]["url"] = f"http://{baliza['ip']}"
     cfg["baliza"].setdefault("duracion_s", baliza.get("duration_s", 10))
+
+
+def recargar_zona(monitor: "MonitorZonal", baliza: "ClienteBaliza", cfg: dict,
+                  remota: dict | None) -> bool:
+    """Aplica la zona que el administrador cambió en el dashboard (CU-09, paso 5).
+
+    El motor lee `zonas` en cada cuadro, así que basta con reemplazarla. Devuelve
+    True si hubo cambio. La URL de la baliza sigue siendo la del arranque.
+    """
+    if remota is None:
+        return False
+    if remota["zone_id"] == cfg["zone_id"] and remota["zone"]["polygon"] == cfg.get("poligono"):
+        return False
+    aplicar_configuracion_remota(cfg, remota)
+    zona = Zona(cfg["poligono"])
+    monitor.zonas = zona.como_zonas(cfg["zone_id"])
+    monitor.poligono = zona
+    baliza.zona_id, baliza.zona_nombre = cfg["zone_id"], cfg["zone_name"][:20]
+    return True
 
 
 def informar_baliza(api: str, beacon_id: str, token: str, baliza: "ClienteBaliza") -> None:
@@ -375,11 +394,15 @@ def main() -> None:
 
             if ahora - ultimo_latido >= 30:  # heartbeat de la baliza (RNF-14)
                 ultimo_latido = ahora
-                if remota is None:
-                    # Arrancó antes que la API: se reintenta solo para conocer el id de su
-                    # baliza. Zona y polígono siguen los del config.json hasta reiniciar.
-                    remota = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
-                    beacon_id = (remota.get("beacon") or {}).get("id") if remota else None
+                # Se pregunta en cada latido: así toma la zona editada en el dashboard,
+                # y también la de la API si arrancó antes que ella. Sin respuesta,
+                # sigue con la última conocida.
+                nueva = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
+                if recargar_zona(monitor, baliza, cfg, nueva):
+                    print(f"  Zona actualizada desde la API · {cfg['zone_name']}")
+                if nueva is not None:
+                    remota = nueva
+                    beacon_id = (remota.get("beacon") or {}).get("id")
                 if baliza.revisar():
                     print(f"  Baliza {'en línea' if baliza.en_linea else 'FUERA DE LÍNEA'}")
                 informar_baliza(cfg["api"], beacon_id,

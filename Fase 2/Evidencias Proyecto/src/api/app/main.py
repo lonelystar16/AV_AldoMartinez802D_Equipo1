@@ -4,13 +4,16 @@ import os
 import secrets
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Path as RutaParam
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator,
+)
 
 from . import almacen, auth, config
 from .auth import requiere_rol, usuario_actual
@@ -185,6 +188,46 @@ class Beacon(BaseModel):
     online: bool = False
     battery_pct: int | None = None
     last_seen_at: datetime | None = None
+
+
+# Las reglas repiten los CHECK de 004_modelo_completo.sql: un dato inválido
+# responde 422 con el campo que falla, no un error genérico de la base.
+ID_RECURSO = r"^[a-z0-9][a-z0-9-]{0,39}$"
+Coordenada = Annotated[float, Field(ge=0, le=1)]
+
+
+class CameraIn(BaseModel):
+    """Alta o edición de una cámara. La URL no admite usuario y clave (`@`):
+    las credenciales van en la variable CAMARA_FUENTE del agente."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+    rtsp_url: str = Field(pattern=r"^rtsps?://[^/@\s]+(/\S*)?$", max_length=500)
+    location: str | None = Field(default=None, max_length=120)
+    active: bool = True
+
+
+class ZoneIn(BaseModel):
+    """Zona de riesgo: polígono relativo al cuadro (0 a 1), como lo usa el agente."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    camera_id: str = Field(pattern=ID_RECURSO)
+    name: str = Field(min_length=1, max_length=80)
+    polygon: list[tuple[Coordenada, Coordenada]] = Field(min_length=3, max_length=50)
+    suppression_s: int = Field(default=60, ge=10, le=600)
+    active: bool = True
+
+
+class BeaconIn(BaseModel):
+    """Alta o edición de una baliza y de su alerta (RF-09, RF-10)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+    ip: IPvAnyAddress
+    zone_id: str | None = Field(default=None, pattern=ID_RECURSO)
+    duration_s: int = Field(default=10, ge=1, le=30)
+    sound: Literal["siren", "voice", "beep"] = "siren"
+    message: str | None = Field(default=None, max_length=40)
 
 
 class BeaconStatus(BaseModel):
@@ -536,9 +579,8 @@ def get_evidence(
 
 # ==================== Recursos: cámaras, zonas y balizas ====================
 #
-# Son de lectura para el dashboard y de descarga para el agente Edge. Crearlos
-# y editarlos no es trabajo de esta API: el catálogo lo carga el administrador
-# con db/seed.sql o directamente en la base.
+# Los lee el dashboard y los descarga el agente Edge. El administrador los da
+# de alta y los edita con PUT (CU-09, CU-10); no se borran, se desactivan.
 
 
 def _buscar(listado: list[dict], identificador: str) -> dict | None:
@@ -588,6 +630,41 @@ def list_beacons(store: almacen.Almacen = Depends(get_store)) -> list[Beacon]:
     """
 
     return [Beacon(**d) for d in _store_call(store.listar_beacons)]
+
+
+IdRecurso = Annotated[str, RutaParam(pattern=ID_RECURSO)]
+SOLO_ADMIN = [Depends(requiere_rol("admin"))]
+
+
+@app.put("/cameras/{camera_id}", response_model=Camera, dependencies=SOLO_ADMIN)
+def put_camera(
+    camera_id: IdRecurso, datos: CameraIn, store: almacen.Almacen = Depends(get_store)
+) -> Camera:
+    """Registra la cámara o reemplaza sus datos (CU-09). Solo administrador."""
+
+    return Camera(**_store_call(store.guardar_camara, {"id": camera_id, **datos.model_dump()}))
+
+
+@app.put("/zones/{zone_id}", response_model=Zone, dependencies=SOLO_ADMIN)
+def put_zone(
+    zone_id: IdRecurso, datos: ZoneIn, store: almacen.Almacen = Depends(get_store)
+) -> Zone:
+    """Registra la zona o reemplaza su polígono (CU-09). El agente la toma en su
+    próximo latido, sin reiniciarse."""
+
+    registro = {"id": zone_id, **datos.model_dump(mode="json")}
+    return Zone(**_store_call(store.guardar_zona, registro))
+
+
+@app.put("/beacons/{beacon_id}", response_model=Beacon, dependencies=SOLO_ADMIN)
+def put_beacon(
+    beacon_id: IdRecurso, datos: BeaconIn, store: almacen.Almacen = Depends(get_store)
+) -> Beacon:
+    """Registra la baliza, su zona y su alerta (CU-10). El estado en línea lo
+    sigue informando el agente con su latido."""
+
+    registro = {"id": beacon_id, **datos.model_dump(mode="json")}
+    return Beacon(**_store_call(store.guardar_baliza, registro))
 
 
 # ==================== Configuración del agente Edge ====================
