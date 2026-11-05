@@ -902,12 +902,9 @@ class AlmacenPostgres:
 
     # --- usuarios ---
     def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None:
-        """Compara con crypt() en la base: el hash bcrypt nunca sale de PostgreSQL."""
+        """La función de la migración 008 compara con crypt(): la API no lee el hash."""
         filas = self._ejecutar(
-            "UPDATE users SET last_login_at = now() "
-            "WHERE email = lower(%s) AND active "
-            "AND password_hash = public.crypt(%s, password_hash) "
-            f"RETURNING {COLUMNAS_USUARIO}",
+            f"SELECT {COLUMNAS_USUARIO} FROM autenticar_usuario(%s, %s)",
             (email.strip(), password),
         )
         return _usuario_desde_fila(filas[0]) if filas else None

@@ -373,6 +373,21 @@ def test_roles_sql_concede_permisos_minimos(postgres_db):
         assert db.execute(
             "SELECT has_table_privilege(%s, 'users', 'SELECT')", (names["cascovision"],)
         ).fetchone()[0] is False
+        # La API lee el perfil y entra por autenticar_usuario(), pero nunca el hash.
+        assert db.execute(
+            "SELECT has_column_privilege(%s, 'users', 'password_hash', 'SELECT')", (names["cascovision"],)
+        ).fetchone()[0] is False
+        assert db.execute(
+            "SELECT has_column_privilege(%s, 'users', 'email', 'SELECT')", (names["cascovision"],)
+        ).fetchone()[0]
+        assert db.execute(
+            "SELECT has_function_privilege(%s, 'autenticar_usuario(text, text)', 'EXECUTE')",
+            (names["cascovision"],),
+        ).fetchone()[0]
+        assert db.execute(
+            "SELECT has_function_privilege(%s, 'autenticar_usuario(text, text)', 'EXECUTE')",
+            (names["prevencion_mantencion"],),
+        ).fetchone()[0] is False
         assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'DELETE')", (names["auditoria_admin"],)).fetchone()[0] is False
         assert db.execute("SELECT has_table_privilege(%s, 'incident_events', 'UPDATE')", (names["auditoria_admin"],)).fetchone()[0] is False
         assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'SELECT')", (names["prevencion_mantencion"],)).fetchone()[0]

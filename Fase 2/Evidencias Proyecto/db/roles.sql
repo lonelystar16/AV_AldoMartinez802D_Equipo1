@@ -18,6 +18,13 @@ DO $$ DECLARE schema_name TEXT := current_schema(); BEGIN
     EXECUTE format('GRANT SELECT, INSERT, UPDATE ON incidents TO cascovision');
     EXECUTE format('GRANT SELECT ON cameras, zones, beacons, shifts TO cascovision');
     EXECUTE format('GRANT UPDATE (online, battery_pct, last_seen_at) ON beacons TO cascovision');
+    -- Login, alta de usuarios y revisión de incidentes (tarea 4.16). La API lee el
+    -- perfil pero nunca password_hash: el login pasa por autenticar_usuario() (008).
+    EXECUTE format('GRANT SELECT (id, email, full_name, phone, role, active, last_login_at) ON users TO cascovision');
+    EXECUTE format('GRANT INSERT (id, email, full_name, phone, password_hash, role, active) ON users TO cascovision');
+    EXECUTE format('GRANT EXECUTE ON FUNCTION autenticar_usuario(TEXT, TEXT) TO cascovision');
+    EXECUTE format('GRANT SELECT, INSERT ON incident_events TO cascovision');
+    EXECUTE format('GRANT USAGE ON SEQUENCE incident_events_id_seq TO cascovision');
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO auditoria_admin', schema_name);
     EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO auditoria_admin', schema_name);
     EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON incident_events FROM auditoria_admin');
