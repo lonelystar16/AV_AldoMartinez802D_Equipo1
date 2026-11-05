@@ -968,7 +968,12 @@ class MonitorEPP:
         carpeta = self.carpeta_evidencia.parent / relativa
         carpeta.mkdir(parents=True, exist_ok=True)
         nombre = f"incidente-{ahora.strftime('%H%M%S-%f')}.jpg"
-        cv2.imwrite(str(carpeta / nombre), frame)
+        try:
+            guardada = cv2.imwrite(str(carpeta / nombre), frame)
+        except cv2.error as exc:
+            raise OSError("No se pudo codificar la evidencia") from exc
+        if not guardada:
+            raise OSError("No se pudo guardar la evidencia")
         return (relativa / nombre).as_posix(), ahora
 
     def _registrar(self, frame, pid, estado, confianza, evento="inicio"):
@@ -997,6 +1002,7 @@ class MonitorEPP:
                 "violation_types": tipos,
                 "confidence": round(min(1.0, max(0.0, confianza)), 4),
                 "evidence_path": evidencia,
+                "face_blurred": True,
                 "person_track_id": int(pid),
                 "beacon_alert": {"status": "skipped_offline", "latency_ms": None},
                 "event": "inicio",
@@ -1186,9 +1192,11 @@ class MonitorEPP:
         # Va sobre las cajas SIN FILTRAR: la regla anti-fantasma decide a quién
         # se vigila, no a quién se difumina. El anonimato no admite excepciones
         # ni descartes.
+        difuminado_completo = True
         for p in personas:
             cabezas = [e for e in epps if e["nombre"] in CLASES_CABEZA]
-            self.difumar_rostros(frame, p["caja"], cabezas)
+            if self.difumar_rostros(frame, p["caja"], cabezas) == 0:
+                difuminado_completo = False
         if not vigiladas and epps:
             # No hay nadie creíble a quien difuminar: o YOLO no acertó la clase
             # 'Person' (gafas, sombra, perfil) y la persona sigue en el encuadre,
@@ -1230,8 +1238,15 @@ class MonitorEPP:
         for pid, (estado, confianza, evento) in nuevos.items():
             notificables = confirmar_infracciones(estado)
             if notificables or evento == "fin":
-                incidente = self._registrar(frame, pid, notificables,
-                                            confianza, evento)
+                if evento == "inicio" and not difuminado_completo:
+                    print(f"No se registra la persona {pid}: no se pudo difuminar el frame completo.")
+                    continue
+                try:
+                    incidente = self._registrar(frame, pid, notificables,
+                                                confianza, evento)
+                except OSError as error:
+                    print(f"No se registra la persona {pid}: fallo al guardar evidencia ({error}).")
+                    continue
                 if incidente is not None:
                     incidentes.append(incidente)
                 self._consola(pid, notificables, evento)

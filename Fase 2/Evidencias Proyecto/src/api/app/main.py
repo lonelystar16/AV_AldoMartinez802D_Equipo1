@@ -50,6 +50,7 @@ class IncidentCreate(BaseModel):
     violation_type: ViolationType
     confidence: float = Field(ge=0, le=1)
     evidence_path: str = Field(min_length=1)
+    face_blurred: bool = False
     beacon_alert: BeaconAlert
     person_track_id: int | None = Field(default=None, ge=0)
     violation_types: list[ViolationType] | None = None
@@ -124,6 +125,7 @@ class Incident(BaseModel):
     violation_types: list[ViolationType] | None = None
     confidence: float
     evidence_path: str
+    face_blurred: bool = False
     beacon_alert: BeaconAlert
     person_track_id: int | None = None
     status: IncidentStatus
@@ -222,6 +224,9 @@ class ReporteResumen(BaseModel):
     # duración que promediar, y un 0.0 sugeriría lo contrario.
     duracion_media_s: float | None = None
     balizas: dict[str, int]
+    por_zona: list[dict[str, str | int]]
+    por_turno: list[dict[str, str | int]]
+    por_hora: list[dict[str, str | int]]
 
 
 class ReporteIncidente(Incident):
@@ -322,6 +327,9 @@ def create_incident(
     """
 
     record = incident.model_dump(mode="json")
+    record["violation_types"] = record["violation_types"] or []
+    if record["violation_type"] not in record["violation_types"]:
+        record["violation_types"].append(record["violation_type"])
     ahora = datetime.now(timezone.utc).isoformat()
     episodio = record.get("episode_id")
 

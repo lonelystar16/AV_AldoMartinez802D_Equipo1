@@ -79,6 +79,7 @@ class ReporteAPI:
             "violation_type": incidente["violation_type"],
             "confidence": incidente["confidence"],
             "evidence_path": incidente["evidence_path"],
+            "face_blurred": incidente.get("face_blurred", False),
             "beacon_alert": incidente["beacon_alert"],
             "person_track_id": incidente.get("person_track_id"),
             "violation_types": incidente.get("violation_types"),

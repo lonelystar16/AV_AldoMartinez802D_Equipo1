@@ -114,6 +114,7 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
   "violation_type": "missing_helmet",
   "confidence": 0.94,
   "evidence_path": "incidents/2026/01/15/incidente-143000-000000.jpg",
+  "face_blurred": true,
   "beacon_alert": {"status": "alerted", "latency_ms": 820},
   "person_track_id": 7,
   "violation_types": ["missing_helmet", "missing_reflective_vest"],
@@ -131,6 +132,7 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
 | `violation_type` | `missing_helmet` o `missing_reflective_vest` |
 | `confidence` | Entre `0` y `1` |
 | `evidence_path` | Relativa: sin `/` inicial, sin `..`, sin `\` y sin `:` (letra de unidad) |
+| `face_blurred` | Booleano opcional; Edge lo envía `true` tras difuminar las personas y guardar la imagen. Por defecto `false` |
 | `beacon_alert.status` | `alerted`, `failed` o `skipped_offline` |
 | `beacon_alert.latency_ms` | Entero ≥ 0 o `null` |
 | `person_track_id` | Opcional. Identificador de seguimiento de la persona (ByteTrack) |
@@ -157,6 +159,10 @@ Respuesta `201 Created`:
   configurada en PostgreSQL.
 - `503 Service Unavailable`: `EDGE_API_TOKEN` sin configurar, PostgreSQL sin
   configurar o caído, o migraciones pendientes.
+
+La API persiste `face_blurred` como una afirmación del agente Edge; no recibe ni
+inspecciona la imagen. El agente no reporta el incidente si falla el difuminado
+del frame o la escritura de la evidencia.
 
 #### Ciclo de vida del aviso (`event`)
 
@@ -327,7 +333,10 @@ duración.
   "terminados": 39,
   "por_estado": {"open": 40, "reviewed": 1, "closed": 1, "false_positive": 0},
   "duracion_media_s": 842.5,
-  "balizas": {"alerted": 12, "failed": 2, "skipped_offline": 28}
+  "balizas": {"alerted": 12, "failed": 2, "skipped_offline": 28},
+  "por_zona": [{"zone_id": "zona-norte", "zone_name": "Zona norte", "total_incidentes": 12, "alertas_activas": 3}],
+  "por_turno": [{"shift_id": 1, "shift_name": "Mañana", "total_incidentes": 18, "alertas_activas": 2}],
+  "por_hora": [{"fecha_local": "2026-10-28", "hora_local": 10, "total_incidentes": 4, "alertas_activas": 1}]
 }
 ```
 
@@ -352,6 +361,13 @@ con `status = open`. **Es correcto, no es un fallo del agente.** Igual vale para
 `ping` y `fin` que llegan con hasta 30 segundos de retardo tras perder de vista
 a la persona: es el mismo `GRACIA_CIERRE_SEGUNDOS` que evita abrir un segundo
 registro cuando ByteTrack reparte otro id.
+
+Las agrupaciones `por_zona`, `por_turno` y `por_hora` se calculan sobre la
+seleccion completa que dejan los filtros, no sobre la pagina. Agrupan por
+`detected_at` en hora local `America/Santiago`; `por_hora` incluye fecha y hora,
+y `por_turno` respeta los horarios de `shifts`, incluido el turno que cruza
+medianoche. Cada grupo informa `total_incidentes` y `alertas_activas` (estado
+de revision `open`).
 
 ## Reglas comunes
 
