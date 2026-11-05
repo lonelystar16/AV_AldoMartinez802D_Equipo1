@@ -341,6 +341,9 @@ def test_reporte_vacio_devuelve_totales_en_cero() -> None:
     assert cuerpo["resumen"]["balizas"] == {
         "alerted": 0, "failed": 0, "skipped_offline": 0,
     }
+    assert cuerpo["resumen"]["por_zona"] == []
+    assert [t["total_incidentes"] for t in cuerpo["resumen"]["por_turno"]] == [0, 0, 0]
+    assert cuerpo["resumen"]["por_hora"] == []
 
 
 def test_reporte_trae_inicio_fin_camara_y_zona() -> None:
@@ -383,6 +386,48 @@ def test_reporte_suma_los_totales_del_periodo() -> None:
     assert cuerpo["resumen"]["balizas"]["skipped_offline"] == 2
     # Solo el terminado tiene duración: 1 h = 3600 s.
     assert cuerpo["resumen"]["duracion_media_s"] == 3600.0
+
+
+def test_reporte_agrupa_por_zona_turno_y_hora_local() -> None:
+    _incidente(detected_at="2026-10-28T13:00:00+00:00")  # 10:00 en Santiago
+    _incidente(
+        camera_id="camara-02", zone_id="zona-sur",
+        detected_at="2026-10-28T01:30:00+00:00",  # 22:30 del día anterior
+    )
+    datos = json.loads(almacen.ARCHIVO.read_text(encoding="utf-8"))
+    datos[1]["status"] = "closed"
+    almacen.ARCHIVO.write_text(json.dumps(datos), encoding="utf-8")
+
+    resumen = peticion("GET", "/reports").json()["resumen"]
+
+    assert resumen["por_zona"] == [
+        {"zone_id": "zona-norte", "zone_name": "Zona Norte", "total_incidentes": 1, "alertas_activas": 1},
+        {"zone_id": "zona-sur", "zone_name": "Zona Sur", "total_incidentes": 1, "alertas_activas": 0},
+    ]
+    assert [
+        (turno["shift_name"], turno["total_incidentes"], turno["alertas_activas"])
+        for turno in resumen["por_turno"]
+    ] == [("Mañana", 1, 1), ("Tarde", 0, 0), ("Noche", 1, 0)]
+    assert resumen["por_hora"] == [
+        {"fecha_local": "2026-10-27", "hora_local": 22, "total_incidentes": 1, "alertas_activas": 0},
+        {"fecha_local": "2026-10-28", "hora_local": 10, "total_incidentes": 1, "alertas_activas": 1},
+    ]
+
+
+def test_reporte_agrupaciones_respetan_filtros() -> None:
+    _incidente(detected_at="2026-10-28T13:00:00+00:00")
+    _incidente(
+        camera_id="camara-02", zone_id="zona-sur",
+        detected_at="2026-10-28T17:00:00+00:00",
+    )
+
+    resumen = peticion("GET", "/reports?zone_id=zona-sur").json()["resumen"]
+
+    assert resumen["por_zona"] == [
+        {"zone_id": "zona-sur", "zone_name": "Zona Sur", "total_incidentes": 1, "alertas_activas": 1},
+    ]
+    assert sum(turno["total_incidentes"] for turno in resumen["por_turno"]) == 1
+    assert sum(hora["total_incidentes"] for hora in resumen["por_hora"]) == 1
 
 
 def test_reporte_el_total_no_se_limita_a_la_pagina() -> None:

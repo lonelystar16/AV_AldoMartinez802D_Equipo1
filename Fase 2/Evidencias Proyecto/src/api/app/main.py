@@ -226,6 +226,9 @@ class ReporteResumen(BaseModel):
     # duración que promediar, y un 0.0 sugeriría lo contrario.
     duracion_media_s: float | None = None
     balizas: dict[str, int]
+    por_zona: list[dict[str, str | int]]
+    por_turno: list[dict[str, str | int]]
+    por_hora: list[dict[str, str | int]]
 
 
 class ReporteIncidente(Incident):
