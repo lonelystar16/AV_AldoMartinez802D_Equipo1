@@ -176,7 +176,7 @@ def arquitectura(salida: Path):
     rutas = [("GET /health", "pública"), ("POST /incidents", "token Edge"),
              ("GET /edge/config", "token Edge"), ("/auth · /incidents", "JWT"),
              ("/cameras /zones /beacons", "JWT"), ("GET …/evidence", "JWT"),
-             ("WS /ws/incidents", "JWT"), ("Notificador", "SMS · correo")]
+             ("WS /ws/incidents", "JWT"), ("Notificador", "correo")]
     for i, (r, a) in enumerate(rutas):
         yy = 26.2 - i * 2.55
         ax.add_patch(Rectangle((45.3, yy - 1.05), 19.4, 2.1, fc="white", ec="#9DB3D1",
@@ -196,9 +196,8 @@ def arquitectura(salida: Path):
          ["prevencionista", "supervisor · admin"], fill=GRIS)
 
     # Externos
-    caja(ax, 92, 30, 15.5, 9, "Twilio", "externo", ["API de SMS"], fill=GRIS)
     caja(ax, 92, 17, 15.5, 9, "Servidor SMTP", "externo", ["correo"], fill=GRIS)
-    ax.text(99.75, 9.5, "Prevencionista:\nSMS al celular y\ncorreo con imagen\ndifuminada",
+    ax.text(99.75, 9.5, "Prevencionista:\ncorreo con imagen\ndifuminada",
             ha="center", va="center", fontsize=6.8, style="italic", color="#555555")
 
     # Comunicación entre servicios
@@ -220,8 +219,6 @@ def arquitectura(salida: Path):
     etiqueta(ax, 41.5, 27.5, "I-06\nI-07")
     flecha(ax, (17, 23.5), (22, 23.5), ambos=True)
     etiqueta(ax, 19.5, 26.6, "HTTPS", negrita=False)
-    flecha(ax, (66, 22), (92, 34))
-    etiqueta(ax, 79.0, 28.0, "I-09")
     flecha(ax, (66, 19.5), (92, 21))
     etiqueta(ax, 80.0, 20.3, "I-10")
 
@@ -263,7 +260,7 @@ def despliegue(salida: Path):
          ["nginx: React + proxy /api, /ws", "publica :443 (y :80 → 443)"], **c)
     caja(ax, 51.5, 23, 18.5, 20.5, "api", "contenedor",
          ["python:3.12-slim", "FastAPI · uvicorn :8000", "solo red interna",
-          "notificador SMS y correo"], **c)
+          "notificador de correo"], **c)
     caja(ax, 32, 23, 18.5, 9, "db", "contenedor",
          ["postgres:16 · :5432", "solo red interna"], **c)
 
@@ -291,11 +288,9 @@ def despliegue(salida: Path):
          ["M5Unified · HTTP :80", "/alert · /health"], tsize=8.0, ssize=6.8, lw=1.1)
 
     # Internet
-    caja(ax, 86, 26, 20, 9, "Twilio", "servicio externo", ["API REST de SMS · :443"], fill=GRIS,
-         tsize=8.2, ssize=6.8)
-    caja(ax, 86, 13, 20, 9, "Servidor SMTP", "servicio externo", ["STARTTLS · :587"], fill=GRIS,
-         tsize=8.2, ssize=6.8)
-    ax.text(96, 6.5, "Solo texto e imagen\ndifuminada (RNF-08)", ha="center", va="center",
+    caja(ax, 86, 22, 20, 9, "Servidor SMTP", "servicio externo", ["STARTTLS :587 · TLS :465"],
+         fill=GRIS, tsize=8.2, ssize=6.8)
+    ax.text(96, 15.5, "Solo texto e imagen\ndifuminada (RNF-08)", ha="center", va="center",
             fontsize=6.8, style="italic", color="#555555")
 
     # Firewall
@@ -312,9 +307,8 @@ def despliegue(salida: Path):
     ax.plot([79.5, 79.5], [48.4, 54.6], color=ROJO, lw=0.6, ls=":", zorder=5)
     flecha(ax, (20, 34), (32, 38.5), ambos=True, lw=1.3)
     etiqueta(ax, 25.5, 30.0, "HTTPS :443\nJWT · WebSocket", fs=6.6)
-    flecha(ax, (70, 30), (86, 30), lw=1.3)
-    etiqueta(ax, 76.0, 34.5, "HTTPS :443\nSMTP :587\nsolo salida", fs=6.6)
-    flecha(ax, (70, 28), (86, 17.5), lw=1.3)
+    flecha(ax, (70, 28.5), (86, 26.5), lw=1.3)
+    etiqueta(ax, 76.0, 33.0, "SMTP :587\nsolo salida", fs=6.6)
 
     # Nota
     ax.text(3, 13.5, "Desarrollo y pruebas (perfil «dev»):\n"
