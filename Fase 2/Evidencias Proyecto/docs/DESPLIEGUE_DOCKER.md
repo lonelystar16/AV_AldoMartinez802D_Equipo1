@@ -18,11 +18,13 @@ docker compose --profile dev up -d --build
 docker compose ps
 ```
 
-La primera construcción descarga PyTorch para CPU y tarda varios minutos. `compose.yaml` se niega a arrancar si faltan `POSTGRES_PASSWORD`, `EDGE_API_TOKEN` o `BALIZA_TOKEN`.
+La primera construcción descarga PyTorch para CPU y tarda varios minutos. `compose.yaml` se niega a arrancar si faltan `POSTGRES_PASSWORD`, `EDGE_API_TOKEN`, `BALIZA_TOKEN`, `JWT_SECRET` o `CASCOVISION_ADMIN_*`.
+
+Cuando `docker compose ps` muestra todo arriba, el dashboard queda en `http://127.0.0.1:8080`: se entra con `CASCOVISION_ADMIN_EMAIL` y `CASCOVISION_ADMIN_PASSWORD` del `.env`, y desde **Usuarios** se crean los prevencionistas y supervisores.
 
 | Perfil | Servicios | Para qué |
 | --- | --- | --- |
-| (ninguno) | `db`, `api`, `edge` | Producción en la faena. Requiere `CAMARA_FUENTE` con la URL RTSP real y una baliza real en `docker/edge/config.json` |
+| (ninguno) | `db`, `api`, `dashboard`, `edge` | Producción en la faena. Requiere `CAMARA_FUENTE` con la URL RTSP real y una baliza real en `docker/edge/config.json` |
 | `dev` | además `rtsp-sim`, `receptor-sim` | Demostración y pruebas: una cámara RTSP que repite `docker/rtsp-sim/video_prueba.mp4` y una baliza simulada |
 
 ## Qué se levanta
@@ -31,6 +33,7 @@ La primera construcción descarga PyTorch para CPU y tarda varios minutos. `comp
 | --- | --- | --- | --- |
 | `db` | `postgres:16.15-alpine` | ninguno | `pg_isready` |
 | `api` | `cascovision/api` | `127.0.0.1:8000` (`/health`, `/docs`) | `GET /health` |
+| `dashboard` | `cascovision/dashboard` (nginx) | `127.0.0.1:8080` (entrar con `CASCOVISION_ADMIN_*`) | |
 | `edge` | `cascovision/edge` (CPU) | ninguno | `ultimo_cuadro.jpg` actualizado en el último minuto |
 | `rtsp-sim` (dev) | `bluenviron/mediamtx:1.15.0-ffmpeg` | ninguno (`rtsp://rtsp-sim:8554/camara-01` en la red interna) | |
 | `receptor-sim` (dev) | `cascovision/receptor-sim` | `127.0.0.1:8081` (`GET /health`: `"alerting": true` mientras suena) | |
@@ -59,7 +62,7 @@ Respaldo: `docker compose exec db pg_dump -U cascovision cascovision > respaldo.
 ## Decisiones y diferencias con el diseño
 
 - **El video de `rtsp-sim` no se versiona** (`.gitignore` excluye `*.mp4`): hay que copiarlo a mano.
-- **No hay servicio `dashboard`:** `src/dashboard/` está vacío (tarea 4.18). Se agrega cuando exista código.
+- **El dashboard llega a la API por nginx** (`docker/dashboard/nginx.conf`): el navegador solo ve `127.0.0.1:8080` y `/api/` se reenvía al servicio `api` por la red interna, así que la API no necesita CORS.
 - **El agente no espera a la API.** Si la API aún no responde al arrancar, usa `docker/edge/config.json` (AD-04); por eso en un arranque en frío el registro dice «la API no respondió GET /edge/config». Para que lea la configuración de la API, basta `docker compose restart edge` cuando la API ya está sana.
 - **Si la cámara no está lista al arrancar, el agente termina y `restart: unless-stopped` lo reintenta.**
 - **PyTorch de CPU.** En Linux `uv.lock` resuelve PyTorch contra el índice CUDA (~3 GB de paquetes `nvidia-*`); el Dockerfile los excluye e instala `torch` y `torchvision` del índice CPU, con las versiones del lock. Se agrega `onnxruntime` (no está en el lock) porque el agente carga primero el `.onnx`.

@@ -6,5 +6,10 @@
 !uv.lock
 !Fase 2/Evidencias Proyecto/src/
 !Fase 2/Evidencias Proyecto/Yolo/modelamiento/
+!Fase 2/Evidencias Proyecto/docker/dashboard/
 **/__pycache__
 **/*.pyc
+# El dashboard se instala y compila dentro de la imagen (npm ci): los modulos
+# locales son de otro sistema operativo.
+**/node_modules
+**/dist

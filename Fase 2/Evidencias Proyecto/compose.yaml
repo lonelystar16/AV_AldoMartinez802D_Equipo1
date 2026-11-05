@@ -1,8 +1,9 @@
 # CascoVision: todo el software con un comando (RNF-15).
 #
 #   cp .env.example .env     # y cambiar los valores "cambiar_esto"
-#   docker compose up -d                       # db + api + edge
+#   docker compose up -d                       # db + api + dashboard + edge
 #   docker compose --profile dev up -d --build # ademas, camara RTSP y baliza simuladas
+#   dashboard en http://127.0.0.1:8080 (usuario: CASCOVISION_ADMIN_* del .env)
 #
 # Los Dockerfile se construyen desde la raiz del repositorio (context: ../..)
 # porque el lock de uv (pyproject.toml, uv.lock) vive ahi. Diseno: docs/DISENO_DOCKER.md.
@@ -50,8 +51,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Solo en este equipo (127.0.0.1): hasta que exista el dashboard (nginx), la API es la
-    # unica forma de ver los datos. En la faena se quita esta linea (AD-07).
+    # Solo en este equipo (127.0.0.1), para /docs y pruebas: el dashboard llega a la API
+    # por la red interna. En la faena se quita esta linea (AD-07).
     ports:
       - "127.0.0.1:${API_PUERTO:-8000}:8000"
     healthcheck:
@@ -59,6 +60,18 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: Fase 2/Evidencias Proyecto/docker/dashboard.Dockerfile
+    image: cascovision/dashboard:dev
+    # nginx reenvia /api/ al servicio api por la red interna.
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:${DASHBOARD_PUERTO:-8080}:80"
     restart: unless-stopped
 
   edge:
