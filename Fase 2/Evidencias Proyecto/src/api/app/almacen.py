@@ -534,7 +534,8 @@ class AlmacenPostgres:
                 registro["beacon_alert"]["latency_ms"],
                 registro["person_track_id"], registro["status"],
                 registro["created_at"], registro["event"],
-                registro.get("episode_id"), registro.get("ping_count", 0),
+                # El agente puede mandar ping_count nulo; la columna es NOT NULL.
+                registro.get("episode_id"), registro.get("ping_count") or 0,
                 registro.get("started_at"), registro.get("last_ping_at"),
                 registro.get("ended_at"),
             ),
