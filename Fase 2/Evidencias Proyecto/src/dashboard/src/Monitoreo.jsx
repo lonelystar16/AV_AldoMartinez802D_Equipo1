@@ -2,7 +2,8 @@ import { api, consulta } from "./api.js";
 import { BALIZA, ESTADO, fecha, infracciones } from "./formato.js";
 import usarDatos from "./usarDatos.js";
 
-const CADA_MS = 5000;
+// PR-04 del plan de pruebas: un incidente debe aparecer en ≤ 3 s.
+const CADA_MS = 2500;
 
 function inicioDelDia() {
   const d = new Date();
@@ -33,7 +34,7 @@ export default function Monitoreo({ abrir, version }) {
     <div className="rejilla">
       <p className="estado-red" aria-live="polite">
         {error ? <span className="error">Sin conexión: {error}</span>
-               : `Actualizado ${actualizado?.toLocaleTimeString("es-CL")} · cada 5 s`}
+               : `Actualizado ${actualizado?.toLocaleTimeString("es-CL")} · cada ${CADA_MS / 1000} s`}
       </p>
 
       <section className="kpis" aria-label="Resumen del día">
