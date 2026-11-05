@@ -53,8 +53,7 @@ Que todo el software de CascoVision se levante con **un solo comando** (`docker 
 | `CASCOVISION_EVIDENCIA` = `/data/incidents` | | ✓ | ✓ | Raíz del volumen de evidencia |
 | `JWT_SECRET` | | ✓ | | Firma de los JWT |
 | `EDGE_API_TOKEN` | | ✓ | ✓ | Token del agente Edge (RNF-18) |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | | ✓ | | SMS |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | | ✓ | | Correo |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | | ✓ | | Aviso por correo (RF-12). El SMS (RF-11) quedó fuera por decisión del equipo (05-11-2026) |
 | `API_URL` = `http://api:8000` | | | ✓ | Dirección interna de la API |
 | `BALIZA_TOKEN` | | | ✓ | Token de `POST /alert` (RNF-11) |
 | `RTSP_USER`, `RTSP_PASSWORD` | | | ✓ | Credenciales de las cámaras; no van en la base de datos |

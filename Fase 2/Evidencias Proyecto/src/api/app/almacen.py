@@ -84,6 +84,16 @@ class Almacen(Protocol):
 
     def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]: ...
 
+    # --- avisos por correo (RF-12) ---
+    def destinatarios_avisos(self) -> list[dict[str, Any]]: ...
+
+    # Devuelve None si ese aviso ya existía (el agente reintentó el envío).
+    def registrar_aviso(
+        self, incident_id: str, user_id: str, canal: str, destino: str
+    ) -> int | None: ...
+
+    def cerrar_aviso(self, aviso_id: int, error: str | None, intentos: int) -> None: ...
+
 
 # ==================== JSON ====================
 
@@ -374,6 +384,16 @@ class AlmacenJSON:
 
     def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
         raise AlmacenNoDisponible("User management requires PostgreSQL storage")
+
+    # Sin base no hay prevencionistas registrados: no se avisa a nadie.
+    def destinatarios_avisos(self) -> list[dict[str, Any]]:
+        return []
+
+    def registrar_aviso(self, incident_id, user_id, canal, destino) -> int | None:
+        return None
+
+    def cerrar_aviso(self, aviso_id, error, intentos) -> None:
+        return None
 
 
 # ==================== Reporte ====================
@@ -990,6 +1010,33 @@ class AlmacenPostgres:
              datos["password"], datos["role"]),
         )
         return _usuario_desde_fila(filas[0])
+
+    # --- avisos ---
+    def destinatarios_avisos(self) -> list[dict[str, Any]]:
+        """Prevencionistas activos: son quienes reciben el aviso (RF-12)."""
+        filas = self._ejecutar(
+            f"SELECT {COLUMNAS_USUARIO} FROM users "
+            "WHERE role = 'prevencionista' AND active ORDER BY email", ())
+        return [_usuario_desde_fila(fila) for fila in filas]
+
+    def registrar_aviso(
+        self, incident_id: str, user_id: str, canal: str, destino: str
+    ) -> int | None:
+        # El índice único de la migración 006 evita avisar dos veces lo mismo.
+        filas = self._ejecutar(
+            "INSERT INTO notifications (incident_id, user_id, channel, destination) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (incident_id, user_id, channel) DO NOTHING RETURNING id",
+            (incident_id, user_id, canal, destino),
+        )
+        return filas[0][0] if filas else None
+
+    def cerrar_aviso(self, aviso_id: int, error: str | None, intentos: int) -> None:
+        self._ejecutar(
+            "UPDATE notifications SET status = %s, attempts = %s, error = %s, "
+            "sent_at = CASE WHEN %s::text IS NULL THEN now() END WHERE id = %s",
+            ("failed" if error else "sent", intentos, error, error, aviso_id),
+        )
 
 
 def obtener_almacen() -> Almacen:

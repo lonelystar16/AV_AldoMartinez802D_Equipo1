@@ -383,6 +383,18 @@ def test_roles_sql_concede_permisos_minimos(postgres_db):
         assert db.execute(
             "SELECT has_column_privilege(%s, 'cameras', 'created_at', 'UPDATE')", (names["cascovision"],)
         ).fetchone()[0] is False
+        # Avisos por correo (4.20): registra el envío y su resultado, sin cambiar el destino.
+        for column, privilege in (("destination", "INSERT"), ("status", "UPDATE"), ("error", "UPDATE")):
+            assert db.execute(
+                "SELECT has_column_privilege(%s, 'notifications', %s, %s)",
+                (names["cascovision"], column, privilege),
+            ).fetchone()[0]
+        assert db.execute(
+            "SELECT has_column_privilege(%s, 'notifications', 'destination', 'UPDATE')", (names["cascovision"],)
+        ).fetchone()[0] is False
+        assert db.execute(
+            "SELECT has_table_privilege(%s, 'notifications', 'DELETE')", (names["cascovision"],)
+        ).fetchone()[0] is False
         assert db.execute(
             "SELECT has_table_privilege(%s, 'users', 'SELECT')", (names["cascovision"],)
         ).fetchone()[0] is False

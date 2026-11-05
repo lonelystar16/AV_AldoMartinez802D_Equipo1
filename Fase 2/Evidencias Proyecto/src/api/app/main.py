@@ -7,7 +7,7 @@ from pathlib import PurePosixPath
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi import Path as RutaParam
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,7 +15,7 @@ from pydantic import (
     BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator,
 )
 
-from . import almacen, auth, config, exportar
+from . import almacen, auth, config, exportar, notificar
 from .auth import requiere_rol, usuario_actual
 
 # Carga el .env del proyecto si existe. Las variables ya presentes en el
@@ -429,6 +429,7 @@ def create_user(datos: UserCreate, store: almacen.Almacen = Depends(get_store)) 
 @app.post("/incidents", status_code=201, response_model=IncidentCreated)
 def create_incident(
     incident: IncidentCreate,
+    tareas: BackgroundTasks,
     _: None = Depends(require_edge_token),
     store: almacen.Almacen = Depends(get_store),
 ) -> IncidentCreated:
@@ -438,6 +439,9 @@ def create_incident(
     ``event="fin"`` el mismo registro se actualiza, usando el ``episode_id``
     como llave: así el aviso periódico no duplica incidentes y el cierre
     fija cuándo terminó la infracción.
+
+    Cada incidente nuevo avisa a los prevencionistas por correo (CU-05)
+    después de responder, para no demorar al agente.
     """
 
     record = incident.model_dump(mode="json")
@@ -456,6 +460,7 @@ def create_incident(
             record["status"] = "open"
             record["created_at"] = ahora
             record["started_at"] = incident.detected_at.isoformat()
+            tareas.add_task(notificar.notificar, store, record, RAIZ_EVIDENCIA)
         else:
             record["id"] = existente["id"]
             record["status"] = existente["status"]
@@ -476,6 +481,7 @@ def create_incident(
     record["last_ping_at"] = None
     record["ended_at"] = None
     _store_call(store.crear_o_actualizar, record)
+    tareas.add_task(notificar.notificar, store, record, RAIZ_EVIDENCIA)
     return IncidentCreated(
         id=record["id"], status="open", created_at=record["created_at"],
         event=incident.event, episode_id=episodio,
@@ -569,10 +575,9 @@ def get_evidence(
     datos = _store_call(store.obtener, incident_id)
     if datos is None:
         raise HTTPException(status_code=404, detail="Incident not found")
-    raiz = (RAIZ_EVIDENCIA / "incidents").resolve()
-    archivo = (RAIZ_EVIDENCIA / datos["evidence_path"]).resolve()
     # La ruta ya se valida al registrar el incidente; esto cubre datos viejos.
-    if not archivo.is_relative_to(raiz) or not archivo.is_file():
+    archivo = notificar.archivo_evidencia(RAIZ_EVIDENCIA, datos["evidence_path"])
+    if archivo is None:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return FileResponse(archivo, media_type="image/jpeg")
 

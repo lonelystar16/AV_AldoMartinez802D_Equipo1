@@ -30,6 +30,9 @@ DO $$ DECLARE schema_name TEXT := current_schema(); BEGIN
     EXECUTE format('GRANT EXECUTE ON FUNCTION autenticar_usuario(TEXT, TEXT) TO cascovision');
     EXECUTE format('GRANT SELECT, INSERT ON incident_events TO cascovision');
     EXECUTE format('GRANT USAGE ON SEQUENCE incident_events_id_seq TO cascovision');
+    -- Avisos por correo (tarea 4.20): la API registra cada envío y su resultado.
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE (status, attempts, sent_at, error) ON notifications TO cascovision');
+    EXECUTE format('GRANT USAGE ON SEQUENCE notifications_id_seq TO cascovision');
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO auditoria_admin', schema_name);
     EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO auditoria_admin', schema_name);
     EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON incident_events FROM auditoria_admin');

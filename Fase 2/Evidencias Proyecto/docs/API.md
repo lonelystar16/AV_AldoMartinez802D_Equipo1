@@ -90,6 +90,7 @@ baliza apagada es una fila que se queda en `online = false`.
 | `CASCOVISION_RECURSOS` | Ruta del JSON de cámaras, zonas y balizas. Por defecto `db/recursos.json`. En `postgres`, se ignora |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Conexión a PostgreSQL, obligatorias con `postgres` |
 | `POSTGRES_HOST`, `POSTGRES_PORT` | Por defecto `localhost` y `5432` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Aviso por correo de cada incidente nuevo (RF-12). Sin `SMTP_HOST` no se envía nada. Puerto 587 con STARTTLS o 465 con TLS; con usuario, nunca entrega la clave sin TLS |
 
 `.env.example` contiene solo valores de ejemplo. Las variables deben estar en el
 entorno del proceso; la API no lee el archivo `.env` por sí misma.
@@ -232,6 +233,17 @@ ping y en el cierre. Por eso:
   quedó en la cola local) crea el registro, para no perder el aviso;
 - dos personas sin EPP abren dos registros distintos, y la segunda se avisa de
   inmediato aunque la primera esté a mitad de su ventana de ping.
+
+**Aviso por correo (RF-12, CU-05, tarea 4.20).** Cada registro nuevo (un
+`inicio`, o un `ping`/`fin` cuyo episodio no existía) envía, después de
+responder al agente, un correo a cada usuario **prevencionista activo** con la
+zona, la cámara, el EPP faltante, la hora de Santiago y cómo terminó la alerta
+de la baliza (si falló o estaba fuera de línea, lo destaca: CU-04 1a y 2a). Si
+`face_blurred` es `true` adjunta la evidencia; si no, solo texto (RNF-08). Cada
+envío queda en `notifications` como `sent` o `failed`, con hasta 2 intentos de
+8 s y el motivo del fallo; el índice único evita avisar dos veces el mismo
+incidente. Un fallo del correo nunca cambia la respuesta al agente. Solo con
+PostgreSQL. El SMS (RF-11) quedó fuera por decisión del equipo (05-11-2026).
 
 ### `GET /incidents`
 

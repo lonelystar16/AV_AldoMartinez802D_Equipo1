@@ -45,6 +45,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
       EDGE_API_TOKEN: ${EDGE_API_TOKEN:?Falta EDGE_API_TOKEN en .env}
       JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+      # Aviso por correo al prevencionista (RF-12). SMTP_HOST vacio = sin avisos.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     volumes:
       # La evidencia que escribe el agente; la API solo la lee (RF-19).
       - evidencia:/app/Fase 2/Evidencias Proyecto/incidents:ro
@@ -129,6 +135,15 @@ services:
     # Las ordenes recibidas quedan en /data/alerts.jsonl dentro del contenedor.
     ports:
       - "127.0.0.1:8081:8081"
+    restart: unless-stopped
+
+  # Buzon de prueba para los correos (RF-12): con SMTP_HOST=mailpit y SMTP_PORT=1025
+  # en .env, los avisos se ven en http://127.0.0.1:8025 sin enviar nada afuera.
+  mailpit:
+    profiles: [dev]
+    image: axllent/mailpit:v1.27.10
+    ports:
+      - "127.0.0.1:8025:8025"
     restart: unless-stopped
 
 volumes:
