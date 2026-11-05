@@ -3,7 +3,7 @@
 **Sistema de detección automatizada de EPP mediante visión computacional**
 Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802D)
 
-> 🚧 **Estado:** Fase 2, desarrollo. Análisis de requerimientos (SRS v0.3, borrador) en revisión; construcción desde la semana 9.
+> **Estado (S13):** MVP ejecutable de punta a punta con Docker Compose: cámara RTSP → agente Edge con YOLO26 → baliza zonal (simulada) → API REST con PostgreSQL → dashboard web con login y roles. Pendiente: firmware de la baliza real, SMS y correo, y reportes en PDF y Excel.
 
 ---
 
@@ -50,62 +50,51 @@ flowchart LR
 - Todo el software corre en contenedores Docker dentro de la red de la faena: **el video no sale de la obra**.
 - Latencia objetivo desde la detección hasta la alerta en la baliza: **menos de 5 segundos**.
 
-## Ejecución local
+## Ejecución con Docker (recomendada)
 
-> ⚠️ **La solución completa todavía no es ejecutable.** El `docker-compose.yml`, el dashboard, el agente Edge y los demás componentes se construirán entre las semanas 9 y 13 (tareas 4.2 a 4.11 de la Gantt). La API FastAPI implementa `GET /health` y las rutas de incidentes; el registro exige el token del agente Edge (`EDGE_API_TOKEN`).
-
-## Despliegue futuro con Docker
-
-> Pendiente: todavía no existe `docker-compose.yml`; estos comandos no son
-> ejecutables en el estado actual.
-
-Requisitos futuros: [Docker](https://www.docker.com/) y Docker Compose.
+Requisito: [Docker](https://www.docker.com/) con Compose v2 (Docker Desktop en Windows y macOS). No hace falta instalar Python, Node ni PostgreSQL.
 
 ```bash
 git clone https://github.com/lonelystar16/AV_AldoMartinez802D_Equipo1.git
 cd "AV_AldoMartinez802D_Equipo1/Fase 2/Evidencias Proyecto"
-cp .env.example .env        # completar las variables
-docker compose up -d        # pendiente hasta disponer de docker-compose.yml
+cp .env.example .env        # PowerShell: Copy-Item .env.example .env
+# editar .env: reemplazar cada "cambiar_esto" por un valor al azar
+#   (JWT_SECRET y BALIZA_TOKEN de 32+ caracteres; CASCOVISION_ADMIN_PASSWORD de 12+)
+# perfil dev: copiar un video público a docker/rtsp-sim/video_prueba.mp4
+docker compose --profile dev up -d --build
+docker compose ps
 ```
 
-## Ejecución actual de la API
+| Servicio | URL en el equipo | Para qué |
+| --- | --- | --- |
+| Dashboard | http://127.0.0.1:8080 | Entrar con `CASCOVISION_ADMIN_EMAIL` y `CASCOVISION_ADMIN_PASSWORD` |
+| API | http://127.0.0.1:8000/docs | Documentación interactiva de la API |
+| Baliza simulada | http://127.0.0.1:8081/health | `"alerting": true` mientras suena |
 
-Requisito validado: Python **3.12**. Están disponibles el endpoint público
-`GET /health` y las rutas de incidentes `POST /incidents` (protegida con el
-token Bearer del agente Edge), `GET /incidents` y `GET /incidents/{incident_id}`.
-El almacenamiento es un archivo JSON por defecto o PostgreSQL con
-`CASCOVISION_STORAGE=postgres`. La configuración, las variables y las
-migraciones están en [`docs/API.md`](Fase%202/Evidencias%20Proyecto/docs/API.md).
+El perfil `dev` agrega una cámara RTSP que repite el video y una baliza simulada, así que todo el flujo corre en un solo PC. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
 
-Para ejecutar la API disponible actualmente de forma directa, desde la raíz
-del repositorio, instala las dependencias y ejecuta:
+## Ejecución sin Docker (desarrollo)
+
+Requisitos: Python **3.12** con [uv](https://docs.astral.sh/uv/) y, para el dashboard, Node 22. Desde la raíz del repositorio:
 
 ```bash
 uv sync --group dev
-export EDGE_API_TOKEN=un_valor_secreto     # PowerShell: $env:EDGE_API_TOKEN="un_valor_secreto"
+# PowerShell: $env:VAR="valor"
+export EDGE_API_TOKEN=un_valor_secreto JWT_SECRET=un_secreto_de_32_caracteres_o_mas
+export CASCOVISION_ADMIN_EMAIL=admin@cascovision.local CASCOVISION_ADMIN_PASSWORD=una_clave_larga
 uv run uvicorn app.main:app --app-dir "Fase 2/Evidencias Proyecto/src/api" --reload
 ```
 
-La opción `--app-dir` es necesaria porque el punto de entrada está en
-`Fase 2/Evidencias Proyecto/src/api/app/main.py`.
+Sin `CASCOVISION_STORAGE=postgres` la API guarda en un archivo JSON y solo entra el administrador del entorno. El dashboard en modo desarrollo (`http://127.0.0.1:5173`) se levanta con `npm install` y `npm run dev` en `Fase 2/Evidencias Proyecto/src/dashboard`. Rutas, roles y variables: [`docs/API.md`](Fase%202/Evidencias%20Proyecto/docs/API.md).
 
-Las pruebas de la API se ejecutan con:
+## Pruebas
 
 ```bash
+uv sync --group dev --group yolo
 uv run pytest
 ```
 
-Con el servidor iniciado, comprueba la disponibilidad de la API en
-`http://localhost:8000/health`. La respuesta esperada es:
-
-```json
-{"status":"ok","service":"cascovision-api"}
-```
-
-| Servicio | URL |
-| --- | --- |
-| API (estado) | http://localhost:8000/health |
-| API (documentación) | http://localhost:8000/docs |
+Las pruebas de PostgreSQL se saltan salvo que se defina `CASCOVISION_TEST_POSTGRES=1` con las variables `POSTGRES_*` de una base de pruebas; cada caso crea y borra su propio esquema.
 
 ### Dependencias del modelo YOLO26
 
@@ -156,10 +145,12 @@ La misma carpeta incluye `face_detection_yunet_2023mar.onnx` (227 KB), el detect
 
 | Integrante | Rol | Responsabilidades |
 | --- | --- | --- |
-| Iahn Vera | Jefe de proyecto / IA | Gestión, modelo YOLO26, agente Edge |
-| Joaquín Armijo | Backend y datos | Modelo de datos, API REST, Docker |
-| Benjamín Cáceres | Frontend y reportería | Dashboard, alertas remotas, reportes |
-| Fernando Muñoz | IoT y pruebas | Baliza zonal (firmware), plan de pruebas |
+| Iahn Vera | Jefe de proyecto / IA | Gestión, modelo YOLO26, agente Edge (`dev-iahn`) |
+| Joaquín Armijo | Desarrollo fullstack | API REST, dashboard, alertas remotas, Docker, manual técnico D4 (`dev-joaco`) |
+| Fernando Muñoz | Base de datos e IoT | PostgreSQL, receptor simulado y firmware de la baliza (`dev-fernando`) |
+| Benjamín Cáceres | QA | Pruebas, integración continua, revisión de PRs, informe de pruebas D3 (`qa`) |
+
+Flujo de ramas: `dev-*` → pull request → `qa` → pull request → `main` (protegida).
 
 ## Metodología
 
