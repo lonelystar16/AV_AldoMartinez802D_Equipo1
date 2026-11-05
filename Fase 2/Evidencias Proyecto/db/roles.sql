@@ -16,12 +16,13 @@ DO $$ DECLARE schema_name TEXT := current_schema(); BEGIN
     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I REVOKE ALL ON TABLES FROM cascovision, auditoria_admin, prevencion_mantencion', schema_name);
     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I REVOKE ALL ON SEQUENCES FROM cascovision, auditoria_admin, prevencion_mantencion', schema_name);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE ON incidents TO cascovision');
+    EXECUTE format('GRANT SELECT ON cameras, zones, beacons TO cascovision');
+    EXECUTE format('GRANT UPDATE (online, battery_pct, last_seen_at) ON beacons TO cascovision');
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO auditoria_admin', schema_name);
     EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO auditoria_admin', schema_name);
     EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON incident_events FROM auditoria_admin');
     EXECUTE format('REVOKE DELETE ON incidents FROM auditoria_admin');
     EXECUTE format('GRANT SELECT ON cameras, zones, beacons, incidents TO prevencion_mantencion');
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE ON TABLES TO cascovision', schema_name);
     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE ON TABLES TO auditoria_admin', schema_name);
 END $$;
 

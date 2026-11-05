@@ -322,9 +322,9 @@ def test_roles_sql_concede_permisos_minimos(postgres_db):
     from psycopg import sql
 
     db = postgres_db
-    can_create_roles = db.execute(
-        "SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname=current_user"
-    ).fetchone()[0]
+    is_superuser, can_create_roles = db.execute(
+        "SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname=current_user"
+    ).fetchone()
     if not can_create_roles:
         pytest.skip("El usuario PostgreSQL de pruebas necesita CREATEROLE para comprobar roles.sql")
 
@@ -340,13 +340,35 @@ def test_roles_sql_concede_permisos_minimos(postgres_db):
     try:
         db.execute(source, prepare=False)
         assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'INSERT')", (names["cascovision"],)).fetchone()[0]
+        for table in ("incidents", "cameras", "zones", "beacons"):
+            assert db.execute(
+                "SELECT has_table_privilege(%s, %s, 'SELECT')",
+                (names["cascovision"], table),
+            ).fetchone()[0]
+        for column in ("online", "battery_pct", "last_seen_at"):
+            assert db.execute(
+                "SELECT has_column_privilege(%s, 'beacons', %s, 'UPDATE')",
+                (names["cascovision"], column),
+            ).fetchone()[0]
+        assert db.execute(
+            "SELECT has_table_privilege(%s, 'users', 'SELECT')", (names["cascovision"],)
+        ).fetchone()[0] is False
         assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'DELETE')", (names["auditoria_admin"],)).fetchone()[0] is False
         assert db.execute("SELECT has_table_privilege(%s, 'incident_events', 'UPDATE')", (names["auditoria_admin"],)).fetchone()[0] is False
         assert db.execute("SELECT has_table_privilege(%s, 'incidents', 'SELECT')", (names["prevencion_mantencion"],)).fetchone()[0]
         assert db.execute("SELECT has_table_privilege(%s, 'users', 'SELECT')", (names["prevencion_mantencion"],)).fetchone()[0] is False
         db.execute("CREATE TABLE role_default_privilege_probe (id integer)")
-        assert db.execute("SELECT has_table_privilege(%s, 'role_default_privilege_probe', 'INSERT')", (names["cascovision"],)).fetchone()[0]
+        assert db.execute("SELECT has_table_privilege(%s, 'role_default_privilege_probe', 'INSERT')", (names["cascovision"],)).fetchone()[0] is False
         assert db.execute("SELECT has_table_privilege(%s, 'role_default_privilege_probe', 'SELECT')", (names["prevencion_mantencion"],)).fetchone()[0] is False
+        if is_superuser:
+            db.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(names["cascovision"])))
+            try:
+                db.execute("SELECT id FROM cameras LIMIT 1").fetchall()
+                db.execute("SELECT id FROM zones LIMIT 1").fetchall()
+                db.execute("SELECT id FROM beacons LIMIT 1").fetchall()
+                db.execute("UPDATE beacons SET online = online WHERE id = 'baliza-01'")
+            finally:
+                db.execute("RESET ROLE")
         db.execute("DROP TABLE role_default_privilege_probe")
     finally:
         db.execute(sql.SQL("DROP OWNED BY {}, {}, {}").format(*[sql.Identifier(name) for name in names.values()]))
