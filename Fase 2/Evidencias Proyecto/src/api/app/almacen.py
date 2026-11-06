@@ -21,8 +21,8 @@ import os
 from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Protocol
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
-from uuid import UUID
 
 
 class AlmacenNoDisponible(Exception):
@@ -31,6 +31,10 @@ class AlmacenNoDisponible(Exception):
 
 class ReferenciaIncidenteInvalida(Exception):
     """La cámara o zona del incidente no existe en los catálogos."""
+
+
+class Conflicto(Exception):
+    """El cambio choca con el estado actual (correo repetido, mismo estado)."""
 
 
 class Almacen(Protocol):
@@ -61,8 +65,32 @@ class Almacen(Protocol):
         self, filtros: dict[str, Any], pagina: int, limite: int
     ) -> dict[str, Any]: ...
 
+    # --- revisión de incidentes (RF-14) ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None: ...
+
+    # --- usuarios (RF-16, RF-17) ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None: ...
+
+    def listar_usuarios(self) -> list[dict[str, Any]]: ...
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]: ...
+
 
 # ==================== JSON ====================
+
+# Sin base de datos no hay tabla de usuarios: el modo JSON (desarrollo y
+# pruebas) acepta un único administrador definido en el entorno.
+ADMIN_LOCAL_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def _admin_local() -> dict[str, Any] | None:
+    email = os.getenv("CASCOVISION_ADMIN_EMAIL", "").strip().lower()
+    if not email or not os.getenv("CASCOVISION_ADMIN_PASSWORD"):
+        return None
+    return {"id": ADMIN_LOCAL_ID, "email": email, "full_name": "Administrador local",
+            "phone": None, "role": "admin", "active": True, "last_login_at": None}
 
 ARCHIVO = Path(
     os.environ.get(
@@ -293,6 +321,42 @@ class AlmacenJSON:
             "incidentes": seleccion[inicio : inicio + limite],
         }
 
+    # --- revisión de incidentes ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None:
+        """Cambia el estado de revisión. En JSON el comentario no se guarda:
+        el historial de revisiones (incident_events) solo existe en PostgreSQL."""
+        datos = self._cargar()
+        indice = next((i for i, d in enumerate(datos) if d.get("id") == incident_id), None)
+        if indice is None:
+            return None
+        if datos[indice].get("status") == estado:
+            raise Conflicto("Incident already has that status")
+        datos[indice] = {**datos[indice], "status": estado}
+        self._guardar(datos)
+        return datos[indice]
+
+    # --- usuarios ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None:
+        import hmac
+
+        admin = _admin_local()
+        if admin is None:
+            return None
+        correo_ok = hmac.compare_digest(email.strip().lower(), admin["email"])
+        clave_ok = hmac.compare_digest(
+            password.encode(), os.environ["CASCOVISION_ADMIN_PASSWORD"].encode()
+        )
+        return admin if correo_ok and clave_ok else None
+
+    def listar_usuarios(self) -> list[dict[str, Any]]:
+        admin = _admin_local()
+        return [admin] if admin else []
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
+        raise AlmacenNoDisponible("User management requires PostgreSQL storage")
+
 
 # ==================== Reporte ====================
 
@@ -490,6 +554,18 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
     }
 
 
+COLUMNAS_USUARIO = "id, email, full_name, phone, role, active, last_login_at"
+
+
+def _usuario_desde_fila(fila: tuple) -> dict[str, Any]:
+    (user_id, email, full_name, phone, role, active, last_login_at) = fila
+    return {
+        "id": str(user_id), "email": email, "full_name": full_name, "phone": phone,
+        "role": role, "active": active,
+        "last_login_at": last_login_at.astimezone(timezone.utc) if last_login_at else None,
+    }
+
+
 def _camara_desde_fila(fila: tuple) -> dict[str, Any]:
     (camera_id, name, rtsp_url, location, active, last_frame_at, created_at) = fila
     return {
@@ -558,8 +634,11 @@ class AlmacenPostgres:
                 return cursor.fetchall() if cursor.description else []
         except psycopg.errors.UndefinedTable as exc:
             raise AlmacenNoDisponible("Database schema is not initialized") from exc
-        except psycopg.errors.UndefinedColumn as exc:
+        except (psycopg.errors.UndefinedColumn, psycopg.errors.UndefinedFunction) as exc:
+            # UndefinedFunction: falta pgcrypto (migración 008).
             raise AlmacenNoDisponible("Database schema is outdated") from exc
+        except psycopg.errors.UniqueViolation as exc:
+            raise Conflicto("Already exists") from exc
         except psycopg.errors.ForeignKeyViolation as exc:
             raise ReferenciaIncidenteInvalida("Camera or zone is not configured") from exc
 
@@ -595,7 +674,8 @@ class AlmacenPostgres:
                 registro["beacon_alert"]["latency_ms"],
                 registro["person_track_id"], registro["status"],
                 registro["created_at"], registro["event"],
-                registro.get("episode_id"), registro.get("ping_count", 0),
+                # El agente puede mandar ping_count nulo; la columna es NOT NULL.
+                registro.get("episode_id"), registro.get("ping_count") or 0,
                 registro.get("started_at"), registro.get("last_ping_at"),
                 registro.get("ended_at"),
             ),
@@ -785,6 +865,63 @@ class AlmacenPostgres:
             },
             "incidentes": [_desde_fila(fila) for fila in pagina_filas],
         }
+
+    # --- revisión de incidentes ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None:
+        """Cambia el estado y deja el evento en incident_events (auditoría).
+
+        Una sola sentencia: el UPDATE y el INSERT del evento quedan en la
+        misma transacción, y el FOR UPDATE evita que dos revisores pisen el
+        cambio del otro.
+        """
+        try:
+            UUID(incident_id)
+        except ValueError:
+            return None
+        filas = self._ejecutar(
+            "WITH previo AS ("
+            "  SELECT id, status FROM incidents WHERE id = %s FOR UPDATE"
+            "), cambio AS ("
+            "  UPDATE incidents i SET status = %s, updated_at = now() FROM previo"
+            "  WHERE i.id = previo.id AND previo.status <> %s"
+            "  RETURNING i.id, previo.status AS desde"
+            "), evento AS ("
+            "  INSERT INTO incident_events (incident_id, user_id, from_status, to_status, comment)"
+            "  SELECT id, %s, desde, %s, %s FROM cambio"
+            ") SELECT (SELECT status FROM previo), (SELECT count(*) FROM cambio)",
+            (incident_id, estado, estado, user_id, estado, comentario),
+        )
+        previo, cambiados = filas[0]
+        if previo is None:
+            return None
+        if not cambiados:
+            raise Conflicto("Incident already has that status")
+        return self.obtener(incident_id)
+
+    # --- usuarios ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None:
+        """La función de la migración 008 compara con crypt(): la API no lee el hash."""
+        filas = self._ejecutar(
+            f"SELECT {COLUMNAS_USUARIO} FROM autenticar_usuario(%s, %s)",
+            (email.strip(), password),
+        )
+        return _usuario_desde_fila(filas[0]) if filas else None
+
+    def listar_usuarios(self) -> list[dict[str, Any]]:
+        filas = self._ejecutar(f"SELECT {COLUMNAS_USUARIO} FROM users ORDER BY email", ())
+        return [_usuario_desde_fila(fila) for fila in filas]
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
+        filas = self._ejecutar(
+            "INSERT INTO users (id, email, full_name, phone, password_hash, role, active) "
+            "VALUES (%s, lower(%s), %s, %s, public.crypt(%s, public.gen_salt('bf', 12)), %s, TRUE) "
+            f"RETURNING {COLUMNAS_USUARIO}",
+            (str(uuid4()), datos["email"], datos["full_name"], datos.get("phone"),
+             datos["password"], datos["role"]),
+        )
+        return _usuario_desde_fila(filas[0])
 
 
 def obtener_almacen() -> Almacen:
