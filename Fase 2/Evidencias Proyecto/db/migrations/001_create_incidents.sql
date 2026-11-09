@@ -1,4 +1,4 @@
-CREATE TABLE incidents (
+CREATE TABLE IF NOT EXISTS incidents (
     id UUID PRIMARY KEY,
     camera_id TEXT NOT NULL CHECK (length(trim(camera_id)) > 0),
     zone_id TEXT NOT NULL CHECK (length(trim(zone_id)) > 0),

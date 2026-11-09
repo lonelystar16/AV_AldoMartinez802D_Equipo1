@@ -375,6 +375,11 @@ def main() -> None:
 
             if ahora - ultimo_latido >= 30:  # heartbeat de la baliza (RNF-14)
                 ultimo_latido = ahora
+                if remota is None:
+                    # Arrancó antes que la API: se reintenta solo para conocer el id de su
+                    # baliza. Zona y polígono siguen los del config.json hasta reiniciar.
+                    remota = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
+                    beacon_id = (remota.get("beacon") or {}).get("id") if remota else None
                 if baliza.revisar():
                     print(f"  Baliza {'en línea' if baliza.en_linea else 'FUERA DE LÍNEA'}")
                 informar_baliza(cfg["api"], beacon_id,

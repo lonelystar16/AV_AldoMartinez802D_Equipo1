@@ -1,0 +1,6 @@
+# Los scripts y Dockerfile se montan o ejecutan dentro de contenedores Linux:
+# con CRLF (core.autocrlf en Windows) fallan al arrancar.
+*.sh text eol=lf
+*.Dockerfile text eol=lf
+Dockerfile text eol=lf
+compose.yaml text eol=lf

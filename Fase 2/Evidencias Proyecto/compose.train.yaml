@@ -1,0 +1,55 @@
+# Entrenamiento del detector en cualquier PC con GPU NVIDIA y Docker (tarea 4.2).
+# Es independiente de compose.yaml: no necesita .env ni levanta la base de datos.
+#
+#   1. Descomprimir el dataset de 5 clases en Yolo/dataset/ (train/ valid/ test/ junto
+#      al YAML). En Windows, Docker Desktop con WSL2 y el driver NVIDIA al dia.
+#   2. docker compose -f compose.train.yaml build
+#   3. docker compose -f compose.train.yaml run --rm cargar-dataset   # una sola vez
+#   4. docker compose -f compose.train.yaml up -d entrenamiento
+#   5. Mirar el avance con lazydocker o docker compose -f compose.train.yaml logs -f
+#
+# Si el contenedor se cae (corte de luz, el PC se suspende, Docker se reinicia), al
+# volver a levantarlo reanuda desde runs/detect/<nombre>/weights/last.pt. Si la corrida
+# ya termino, sale sin hacer nada.
+name: cascovision-train
+
+services:
+  entrenamiento:
+    build:
+      context: ../..
+      dockerfile: Fase 2/Evidencias Proyecto/docker/train.Dockerfile
+    image: cascovision/train:dev
+    # batch -1: AutoBatch elige el lote que cabe en la GPU (6 GB en un portatil RTX 3060).
+    # mixup 0.1: en train-10 la perdida de clasificacion de validacion subio de 0,89 a
+    # 1,03 entre las epocas 46 y 94 mientras la de entrenamiento bajaba (sobreajuste).
+    command: >-
+      --name ${TRAIN_NOMBRE:-train-11} --resume
+      --epochs ${TRAIN_EPOCAS:-100} --batch ${TRAIN_BATCH:--1} --mixup 0.1
+      --workers ${TRAIN_WORKERS:-4} --device 0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # Los workers del dataloader comparten los lotes por /dev/shm (64 MB por defecto).
+    shm_size: 2gb
+    volumes:
+      # Volumen y no bind mount: leer miles de imagenes desde C:\ por WSL2 frena la GPU.
+      - dataset:/app/Fase 2/Evidencias Proyecto/Yolo/dataset
+      - ./Yolo/runs:/app/Fase 2/Evidencias Proyecto/Yolo/runs
+    # Reintenta tras una caida, pero no para siempre ante un error fijo (sin GPU, sin datos).
+    restart: on-failure:5
+
+  cargar-dataset:
+    profiles: [carga]
+    image: alpine:3.20
+    command: ["sh", "-c", "cp -r /origen/. /destino/ && ls /destino"]
+    volumes:
+      - ${DATASET_ORIGEN:-./Yolo/dataset}:/origen:ro
+      - dataset:/destino
+
+volumes:
+  dataset:
+    name: cascovision-dataset

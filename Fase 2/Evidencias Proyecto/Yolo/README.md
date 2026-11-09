@@ -11,7 +11,9 @@
 > 🚧 **Detector de 5 clases en producción.** La corrida `train-10` cerró por
 > *early stopping* en la época 94, con la mejor época en la 64. El modelo
 > entregado es [`models/cascovision_yolo26s.pt`](../models/). La sección 3.5
-> recoge sus métricas y la comparación con la línea base `train-9`.
+> recoge sus métricas y la comparación con la línea base `train-9`. El
+> reentrenamiento `train-11` (mixup 0,1, 05-11-2026) empató con `train-10` y no
+> lo reemplazó (ver 3.5).
 
 ---
 
@@ -319,6 +321,32 @@ El techo de ~0,88 de mAP@0,5 se explica por dos factores:
 La línea de trabajo pendiente es atacar esa clase: más ejemplos de `no_vest`, o
 una versión del dataset que marque explícitamente el torso.
 
+#### `train-11`: mixup 0,1 (tarea 4.2, 05-11-2026)
+
+Misma configuración que `train-10` más `--mixup 0.1`, en Docker con la RTX 3060
+Laptop (6 GB, AutoBatch eligió lotes de 4; el lote nominal de 64 se mantiene por
+acumulación de gradientes). Cerró por *early stopping* en la época 94 tras 4,5 h,
+con la mejor época en la 64, igual que `train-10`. Evaluadas las dos con el mismo
+protocolo (`Yolo/modelamiento/evaluacion.py` y `val` de Ultralytics, `conf` 0,25):
+
+| Métrica | `train-10` | `train-11` |
+| --- | --- | --- |
+| mAP@0,5 validación (732 imágenes) | **0,851** | 0,849 |
+| mAP@0,5:0,95 validación | **0,580** | 0,573 |
+| mAP@0,5 prueba (129 imágenes) | 0,877 | **0,892** |
+| mAP@0,5 por clase, validación (helmet / no_helmet / no_vest) | 0,809 / **0,869** / **0,828** | **0,818** / 0,853 / 0,817 |
+| mAP@0,5 por clase, prueba (helmet / no_helmet / no_vest) | 0,833 / 0,846 / **0,843** | **0,871** / **0,864** / 0,840 |
+| Regla «¿lleva casco?», prueba (P / R) | 0,986 / **0,947** | 0,986 / 0,940 |
+| Regla «¿lleva chaleco?», prueba (P / R) | **1,000** / 0,887 | 0,986 / **0,908** |
+
+**Resultado: empate.** `train-11` mejora en el conjunto de prueba, pero es 6 veces
+más chico que el de validación, donde queda apenas por debajo; por clase y por
+regla los cambios van en las dos direcciones. Mixup no rompió el techo de ~0,85
+en validación, así que el sobreajuste no era la única causa. **Se mantiene
+`train-10` como modelo entregado.** Ninguno cumple el mAP@0,5 ≥ 0,90 del RNF-05;
+los dos cumplen el *recall* ≥ 0,85 por regla. La corrida queda en
+`Yolo/runs/detect/train-11/` (no versionada).
+
 ### 3.4 Diagnóstico: sobreajuste
 
 Las pérdidas de entrenamiento bajan durante el entrenamiento, pero las de
@@ -363,7 +391,7 @@ Una infracción se confirma tras aparecer en 2 de los últimos 5 frames, lo que 
 
 ### Evidencia
 
-Cada infracción confirmada guarda el frame, ya con los rostros difuminados, en `incidents/AAAA/MM/DD/`. El incidente se registra en la API con la referencia a ese archivo en `evidence_path`.
+Cada infracción confirmada guarda el frame, ya con las personas difuminadas, en `incidents/AAAA/MM/DD/`. Si YuNet y el detector de cabeza no encuentran un rostro, el motor difumina toda la región de la persona. El agente informa `face_blurred: true` solo tras completar el difuminado del frame y guardar la imagen; si falla alguno de esos pasos, no envía el incidente a la API.
 
 ---
 
@@ -426,6 +454,52 @@ primera vez que se usa.
 ```bash
 uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py"
 ```
+
+**Reentrenamiento (`train-11`, tarea 4.2).** Necesita el dataset de 5 clases
+(~440 MB, no versionado) descomprimido en `Yolo/dataset/` con las carpetas
+`train/`, `valid/` y `test/`, y una GPU. Con 5.033 imágenes de entrenamiento no
+es viable en CPU. El parámetro `--device` elige dónde corre:
+
+| Equipo | `--device` | Notas |
+| --- | --- | --- |
+| PC con GPU NVIDIA | `0` (por defecto) | Requiere el índice CUDA de PyTorch del `pyproject.toml` |
+| Mac con chip Apple (GPU Metal) | `mps` | Más lento que CUDA; probar antes con `--epochs 2` |
+| Google Colab (GPU T4) | `0` | Montar el dataset desde Drive; copiar `runs/` y el `best.pt` al terminar |
+
+```bash
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/entrenamiento.py" \
+    --name train-11 --device mps --batch 16 --epochs 100
+```
+
+**Con Docker, en un PC con GPU NVIDIA.** `compose.train.yaml` deja el
+entrenamiento corriendo en segundo plano sin instalar Python ni CUDA en el equipo.
+En Windows necesita Docker Desktop con WSL2 y el driver NVIDIA al día; en Linux,
+el NVIDIA Container Toolkit. Desde `Fase 2/Evidencias Proyecto/`, con el dataset ya
+descomprimido en `Yolo/dataset/`:
+
+```bash
+docker compose -f compose.train.yaml build
+docker compose -f compose.train.yaml run --rm cargar-dataset   # copia el dataset al volumen, una vez
+docker compose -f compose.train.yaml up -d entrenamiento       # train-11 en segundo plano
+lazydocker                                                     # o: docker compose -f compose.train.yaml logs -f
+```
+
+- El dataset vive en el volumen `cascovision-dataset` y no en un *bind mount*:
+  leer miles de imágenes desde `C:\` a través de WSL2 deja la GPU esperando.
+- Las corridas quedan en `Yolo/runs/detect/<nombre>/`, en el propio equipo.
+- Si el contenedor se cae (el PC se suspende, se corta la luz, Docker se
+  reinicia), al levantarlo de nuevo continúa desde `weights/last.pt`. Si la
+  corrida ya terminó, sale sin hacer nada.
+- `TRAIN_NOMBRE`, `TRAIN_EPOCAS`, `TRAIN_BATCH` y `TRAIN_WORKERS` cambian la
+  corrida sin editar el archivo. Por ejemplo,
+  `TRAIN_NOMBRE=train-12 docker compose -f compose.train.yaml up -d entrenamiento`.
+- `train-11` usa `--mixup 0.1`. En `train-10`, la pérdida de clasificación en
+  validación subió de 0,89 a 1,03 entre las épocas 46 y 94, mientras la de
+  entrenamiento seguía bajando: es sobreajuste.
+
+En macOS, Docker no ve la GPU Metal, así que el contenedor correría en CPU. Ahí
+se entrena de forma nativa con `--device mps` (tabla de arriba). Los contenedores
+de `compose.yaml` son solo para la inferencia del agente Edge.
 
 ### Anonimización de la evidencia
 

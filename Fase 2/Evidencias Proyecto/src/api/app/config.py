@@ -30,6 +30,9 @@ VARIABLES = {
     "POSTGRES_PASSWORD": "Contrasena de PostgreSQL. Obligatoria con CASCOVISION_STORAGE=postgres",
     "POSTGRES_HOST": "Servidor de PostgreSQL. Por defecto 'localhost'",
     "POSTGRES_PORT": "Puerto de PostgreSQL. Por defecto '5432'",
+    "JWT_SECRET": "Firma de las sesiones del dashboard (32+ caracteres). Sin ella, el login responde 503",
+    "CASCOVISION_ADMIN_EMAIL": "Administrador inicial: con Docker se crea en la base; con JSON es el unico usuario",
+    "CASCOVISION_ADMIN_PASSWORD": "Clave del administrador inicial (12+ caracteres)",
 }
 
 

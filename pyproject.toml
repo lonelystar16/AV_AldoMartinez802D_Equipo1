@@ -15,6 +15,7 @@ dependencies = [
     "psycopg>=3.3.6",
     "uvicorn>=0.54.0",
     "httpx>=0.28.1",
+    "pyjwt>=2.10",
 ]
 
 # La API no necesita opencv ni torch: son del agente Edge y del detector.
@@ -58,6 +59,7 @@ package = false
 testpaths = ["Fase 2/Evidencias Proyecto/tests"]
 # Permite importar la API sin el sys.path.insert manual de cada prueba.
 pythonpath = ["Fase 2/Evidencias Proyecto/src/api"]
+markers = ["sin_sesion: usa la autenticacion real en vez del admin de prueba"]
 
 [build-system]
 requires = ["uv_build>=0.13.4,<0.14.0"]

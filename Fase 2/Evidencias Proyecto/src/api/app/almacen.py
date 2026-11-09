@@ -18,14 +18,23 @@ necesiten un servidor.
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 
 class AlmacenNoDisponible(Exception):
     """El almacenamiento no está configurado o no responde."""
+
+
+class ReferenciaIncidenteInvalida(Exception):
+    """La cámara o zona del incidente no existe en los catálogos."""
+
+
+class Conflicto(Exception):
+    """El cambio choca con el estado actual (correo repetido, mismo estado)."""
 
 
 class Almacen(Protocol):
@@ -56,8 +65,32 @@ class Almacen(Protocol):
         self, filtros: dict[str, Any], pagina: int, limite: int
     ) -> dict[str, Any]: ...
 
+    # --- revisión de incidentes (RF-14) ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None: ...
+
+    # --- usuarios (RF-16, RF-17) ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None: ...
+
+    def listar_usuarios(self) -> list[dict[str, Any]]: ...
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]: ...
+
 
 # ==================== JSON ====================
+
+# Sin base de datos no hay tabla de usuarios: el modo JSON (desarrollo y
+# pruebas) acepta un único administrador definido en el entorno.
+ADMIN_LOCAL_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def _admin_local() -> dict[str, Any] | None:
+    email = os.getenv("CASCOVISION_ADMIN_EMAIL", "").strip().lower()
+    if not email or not os.getenv("CASCOVISION_ADMIN_PASSWORD"):
+        return None
+    return {"id": ADMIN_LOCAL_ID, "email": email, "full_name": "Administrador local",
+            "phone": None, "role": "admin", "active": True, "last_login_at": None}
 
 ARCHIVO = Path(
     os.environ.get(
@@ -227,13 +260,102 @@ class AlmacenJSON:
         ]
         seleccion.sort(key=lambda d: _instante(d["detected_at"]), reverse=True)
         inicio = (pagina - 1) * limite
+        zonas = {
+            zona["id"]: zona.get("name", zona["id"])
+            for zona in self._cargar_recursos().get("zones", [])
+        }
+        por_zona: dict[str, dict[str, Any]] = {}
+        por_hora: dict[tuple[str, int], dict[str, Any]] = {}
+        por_turno = {
+            shift_id: {
+                "shift_id": shift_id,
+                "shift_name": name,
+                "total_incidentes": 0,
+                "alertas_activas": 0,
+            }
+            for shift_id, name, _, _ in TURNOS
+        }
+        for incidente in seleccion:
+            zone_id = incidente["zone_id"]
+            zona = por_zona.setdefault(zone_id, {
+                "zone_id": zone_id,
+                "zone_name": zonas.get(zone_id, zone_id),
+                "total_incidentes": 0,
+                "alertas_activas": 0,
+            })
+            activa = incidente.get("status") == "open"
+            zona["total_incidentes"] += 1
+            zona["alertas_activas"] += activa
+
+            local = _instante(incidente["detected_at"]).astimezone(ZONA_LOCAL)
+            clave_hora = (local.date().isoformat(), local.hour)
+            hora = por_hora.setdefault(clave_hora, {
+                "fecha_local": clave_hora[0],
+                "hora_local": local.hour,
+                "total_incidentes": 0,
+                "alertas_activas": 0,
+            })
+            hora["total_incidentes"] += 1
+            hora["alertas_activas"] += activa
+            for shift_id, _, desde, hasta in TURNOS:
+                dentro = (
+                    desde <= local.time() < hasta
+                    if desde < hasta
+                    else local.time() >= desde or local.time() < hasta
+                )
+                if dentro:
+                    por_turno[shift_id]["total_incidentes"] += 1
+                    por_turno[shift_id]["alertas_activas"] += activa
+                    break
+        resumen = _resumen(seleccion)
+        resumen.update({
+            "por_zona": sorted(por_zona.values(), key=lambda item: item["zone_id"]),
+            "por_turno": list(por_turno.values()),
+            "por_hora": [por_hora[k] for k in sorted(por_hora)],
+        })
         return {
             # El total y el resumen se calculan sobre toda la selección, no
             # sobre la página: el prevencionista pide totales del período.
             "total": len(seleccion),
-            "resumen": _resumen(seleccion),
+            "resumen": resumen,
             "incidentes": seleccion[inicio : inicio + limite],
         }
+
+    # --- revisión de incidentes ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None:
+        """Cambia el estado de revisión. En JSON el comentario no se guarda:
+        el historial de revisiones (incident_events) solo existe en PostgreSQL."""
+        datos = self._cargar()
+        indice = next((i for i, d in enumerate(datos) if d.get("id") == incident_id), None)
+        if indice is None:
+            return None
+        if datos[indice].get("status") == estado:
+            raise Conflicto("Incident already has that status")
+        datos[indice] = {**datos[indice], "status": estado}
+        self._guardar(datos)
+        return datos[indice]
+
+    # --- usuarios ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None:
+        import hmac
+
+        admin = _admin_local()
+        if admin is None:
+            return None
+        correo_ok = hmac.compare_digest(email.strip().lower(), admin["email"])
+        clave_ok = hmac.compare_digest(
+            password.encode(), os.environ["CASCOVISION_ADMIN_PASSWORD"].encode()
+        )
+        return admin if correo_ok and clave_ok else None
+
+    def listar_usuarios(self) -> list[dict[str, Any]]:
+        admin = _admin_local()
+        return [admin] if admin else []
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
+        raise AlmacenNoDisponible("User management requires PostgreSQL storage")
 
 
 # ==================== Reporte ====================
@@ -242,6 +364,13 @@ class AlmacenJSON:
 # Se repiten aquí porque la API no los puede pedir a PostgreSQL si no hay base.
 ESTADOS_BALIZA = ("alerted", "failed", "skipped_offline")
 ESTADOS_INCIDENTE = ("open", "reviewed", "closed", "false_positive")
+ZONA_LOCAL = ZoneInfo("America/Santiago")
+# shortcut: JSON mirrors the seed shifts; load shift config if JSON shifts become editable.
+TURNOS = (
+    (1, "Mañana", time(6), time(14)),
+    (2, "Tarde", time(14), time(22)),
+    (3, "Noche", time(22), time(6)),
+)
 
 
 def _solapa(dato: dict[str, Any], filtros: dict[str, Any]) -> bool:
@@ -354,7 +483,7 @@ def _condiciones_reporte(filtros: dict[str, Any]) -> tuple[str, list[Any]]:
 
 COLUMNAS = (
     "id, camera_id, zone_id, detected_at, violation_type, violation_types, "
-    "confidence, evidence_path, beacon_alert_status, beacon_alert_latency_ms, "
+    "confidence, evidence_path, face_blurred, beacon_alert_status, beacon_alert_latency_ms, "
     "person_track_id, status, created_at, event, episode_id, ping_count, "
     "started_at, last_ping_at, ended_at"
 )
@@ -397,8 +526,9 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
     """
     (
         incident_id, camera_id, zone_id, detected_at, violation_type,
-        violation_types, confidence, evidence_path, beacon_status,
-        beacon_latency, person_track_id, status, created_at, event,
+        violation_types, confidence, evidence_path, face_blurred, beacon_status,
+        beacon_latency, person_track_id, status, created_at,
+        event,
         episode_id, ping_count, started_at, last_ping_at, ended_at,
     ) = fila
     return {
@@ -410,6 +540,7 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
         "violation_types": violation_types,
         "confidence": confidence,
         "evidence_path": evidence_path,
+        "face_blurred": face_blurred,
         "beacon_alert": {"status": beacon_status, "latency_ms": beacon_latency},
         "person_track_id": person_track_id,
         "status": status,
@@ -420,6 +551,18 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
         "started_at": started_at.astimezone(timezone.utc) if started_at else None,
         "last_ping_at": last_ping_at.astimezone(timezone.utc) if last_ping_at else None,
         "ended_at": ended_at.astimezone(timezone.utc) if ended_at else None,
+    }
+
+
+COLUMNAS_USUARIO = "id, email, full_name, phone, role, active, last_login_at"
+
+
+def _usuario_desde_fila(fila: tuple) -> dict[str, Any]:
+    (user_id, email, full_name, phone, role, active, last_login_at) = fila
+    return {
+        "id": str(user_id), "email": email, "full_name": full_name, "phone": phone,
+        "role": role, "active": active,
+        "last_login_at": last_login_at.astimezone(timezone.utc) if last_login_at else None,
     }
 
 
@@ -491,8 +634,14 @@ class AlmacenPostgres:
                 return cursor.fetchall() if cursor.description else []
         except psycopg.errors.UndefinedTable as exc:
             raise AlmacenNoDisponible("Database schema is not initialized") from exc
-        except psycopg.errors.UndefinedColumn as exc:
+        except (psycopg.errors.UndefinedColumn, psycopg.errors.UndefinedFunction) as exc:
+            # UndefinedFunction: falta pgcrypto (migración 008).
             raise AlmacenNoDisponible("Database schema is outdated") from exc
+        except psycopg.errors.UniqueViolation as exc:
+            raise Conflicto("Already exists") from exc
+        except psycopg.errors.ForeignKeyViolation as exc:
+            raise ReferenciaIncidenteInvalida("Camera or zone is not configured") from exc
+
         except psycopg.OperationalError as exc:
             raise AlmacenNoDisponible("PostgreSQL is unavailable") from exc
 
@@ -507,11 +656,11 @@ class AlmacenPostgres:
         self._ejecutar(
             "INSERT INTO incidents ("
             "id, camera_id, zone_id, detected_at, violation_type, violation_types, "
-            "confidence, evidence_path, beacon_alert_status, beacon_alert_latency_ms, "
+            "confidence, evidence_path, face_blurred, beacon_alert_status, beacon_alert_latency_ms, "
             "person_track_id, status, created_at, event, episode_id, ping_count, "
             "started_at, last_ping_at, ended_at"
             ") VALUES ("
-            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
             ") ON CONFLICT (id) DO UPDATE SET "
             "event = EXCLUDED.event, ping_count = EXCLUDED.ping_count, "
             "last_ping_at = EXCLUDED.last_ping_at, ended_at = EXCLUDED.ended_at, "
@@ -520,11 +669,13 @@ class AlmacenPostgres:
                 registro["id"], registro["camera_id"], registro["zone_id"],
                 registro["detected_at"], registro["violation_type"],
                 registro["violation_types"], registro["confidence"],
-                registro["evidence_path"], registro["beacon_alert"]["status"],
+                registro["evidence_path"], registro["face_blurred"],
+                registro["beacon_alert"]["status"],
                 registro["beacon_alert"]["latency_ms"],
                 registro["person_track_id"], registro["status"],
                 registro["created_at"], registro["event"],
-                registro.get("episode_id"), registro.get("ping_count", 0),
+                # El agente puede mandar ping_count nulo; la columna es NOT NULL.
+                registro.get("episode_id"), registro.get("ping_count") or 0,
                 registro.get("started_at"), registro.get("last_ping_at"),
                 registro.get("ended_at"),
             ),
@@ -641,6 +792,34 @@ class AlmacenPostgres:
          falsos_positivos, alertadas, fallidas, sin_baliza,
          duracion_media) = filas[0]
 
+        por_zona = self._ejecutar(
+            "SELECT z.id, z.name, count(i.id), "
+            "count(i.id) FILTER (WHERE i.status = 'open') "
+            f"FROM (SELECT * FROM incidents {where}) i "
+            "JOIN zones z ON z.id = i.zone_id "
+            "GROUP BY z.id, z.name ORDER BY z.id",
+            tuple(parametros),
+        )
+        por_turno = self._ejecutar(
+            "SELECT s.id, s.name, count(i.id), "
+            "count(i.id) FILTER (WHERE i.status = 'open') "
+            f"FROM shifts s LEFT JOIN (SELECT * FROM incidents {where}) i ON CASE "
+            "WHEN s.starts_at < s.ends_at THEN "
+            "(i.detected_at AT TIME ZONE 'America/Santiago')::time >= s.starts_at "
+            "AND (i.detected_at AT TIME ZONE 'America/Santiago')::time < s.ends_at "
+            "ELSE (i.detected_at AT TIME ZONE 'America/Santiago')::time >= s.starts_at "
+            "OR (i.detected_at AT TIME ZONE 'America/Santiago')::time < s.ends_at END "
+            "GROUP BY s.id, s.name ORDER BY s.id",
+            tuple(parametros),
+        )
+        por_hora = self._ejecutar(
+            "SELECT (detected_at AT TIME ZONE 'America/Santiago')::date, "
+            "date_part('hour', detected_at AT TIME ZONE 'America/Santiago')::smallint, "
+            "count(*), count(*) FILTER (WHERE status = 'open') "
+            f"FROM incidents {where} GROUP BY 1, 2 ORDER BY 1, 2",
+            tuple(parametros),
+        )
+
         pagina_filas = self._ejecutar(
             f"SELECT {COLUMNAS} FROM incidents {where}"
             "ORDER BY detected_at DESC LIMIT %s OFFSET %s",
@@ -668,9 +847,81 @@ class AlmacenPostgres:
                     "failed": fallidas,
                     "skipped_offline": sin_baliza,
                 },
+                "por_zona": [
+                    {"zone_id": row[0], "zone_name": row[1],
+                     "total_incidentes": row[2], "alertas_activas": row[3]}
+                    for row in por_zona
+                ],
+                "por_turno": [
+                    {"shift_id": row[0], "shift_name": row[1],
+                     "total_incidentes": row[2], "alertas_activas": row[3]}
+                    for row in por_turno
+                ],
+                "por_hora": [
+                    {"fecha_local": row[0].isoformat(), "hora_local": row[1],
+                     "total_incidentes": row[2], "alertas_activas": row[3]}
+                    for row in por_hora
+                ],
             },
             "incidentes": [_desde_fila(fila) for fila in pagina_filas],
         }
+
+    # --- revisión de incidentes ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None:
+        """Cambia el estado y deja el evento en incident_events (auditoría).
+
+        Una sola sentencia: el UPDATE y el INSERT del evento quedan en la
+        misma transacción, y el FOR UPDATE evita que dos revisores pisen el
+        cambio del otro.
+        """
+        try:
+            UUID(incident_id)
+        except ValueError:
+            return None
+        filas = self._ejecutar(
+            "WITH previo AS ("
+            "  SELECT id, status FROM incidents WHERE id = %s FOR UPDATE"
+            "), cambio AS ("
+            "  UPDATE incidents i SET status = %s, updated_at = now() FROM previo"
+            "  WHERE i.id = previo.id AND previo.status <> %s"
+            "  RETURNING i.id, previo.status AS desde"
+            "), evento AS ("
+            "  INSERT INTO incident_events (incident_id, user_id, from_status, to_status, comment)"
+            "  SELECT id, %s, desde, %s, %s FROM cambio"
+            ") SELECT (SELECT status FROM previo), (SELECT count(*) FROM cambio)",
+            (incident_id, estado, estado, user_id, estado, comentario),
+        )
+        previo, cambiados = filas[0]
+        if previo is None:
+            return None
+        if not cambiados:
+            raise Conflicto("Incident already has that status")
+        return self.obtener(incident_id)
+
+    # --- usuarios ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None:
+        """La función de la migración 008 compara con crypt(): la API no lee el hash."""
+        filas = self._ejecutar(
+            f"SELECT {COLUMNAS_USUARIO} FROM autenticar_usuario(%s, %s)",
+            (email.strip(), password),
+        )
+        return _usuario_desde_fila(filas[0]) if filas else None
+
+    def listar_usuarios(self) -> list[dict[str, Any]]:
+        filas = self._ejecutar(f"SELECT {COLUMNAS_USUARIO} FROM users ORDER BY email", ())
+        return [_usuario_desde_fila(fila) for fila in filas]
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
+        filas = self._ejecutar(
+            "INSERT INTO users (id, email, full_name, phone, password_hash, role, active) "
+            "VALUES (%s, lower(%s), %s, %s, public.crypt(%s, public.gen_salt('bf', 12)), %s, TRUE) "
+            f"RETURNING {COLUMNAS_USUARIO}",
+            (str(uuid4()), datos["email"], datos["full_name"], datos.get("phone"),
+             datos["password"], datos["role"]),
+        )
+        return _usuario_desde_fila(filas[0])
 
 
 def obtener_almacen() -> Almacen:

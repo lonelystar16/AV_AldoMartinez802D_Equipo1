@@ -12,6 +12,53 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 | `GET /cameras`, `GET /cameras/{id}`, `GET /zones`, `GET /beacons` | El catálogo de recursos, que administra el dashboard |
 | `GET /edge/config`, `PUT /edge/beacons/{id}/status` | El lado del agente Edge: qué descarga al arrancar y cómo informa a la API |
 | `GET /reports` | El reporte de gestión para el prevencionista |
+| `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users` | Sesión y usuarios del dashboard (tarea 4.16, `tests/test_auth.py`) |
+| `PATCH /incidents/{id}`, `GET /incidents/{id}/evidence` | Revisión del incidente (RF-14) y su imagen difuminada (RF-19) |
+
+## Sesión y roles (RF-16, RF-17)
+
+Todas las rutas exigen sesión salvo `GET /health` (pública) y las del agente
+Edge (`POST /incidents`, `GET /edge/config`, `PUT /edge/beacons/{id}/status`),
+que usan su propio `EDGE_API_TOKEN`. El token del agente no abre las rutas del
+dashboard ni al revés.
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{"email": "admin@cascovision.local", "password": "..."}
+```
+
+Responde `{"access_token": "...", "token_type": "bearer", "expires_at": "...", "user": {...}}`.
+El token es un JWT HS256 firmado con `JWT_SECRET` (32+ caracteres; sin él el
+login responde `503`) y dura 8 horas, un turno. Se envía como
+`Authorization: Bearer <token>`. Correo o clave malos responden `401` con el
+mismo mensaje. El tiempo de respuesta sí puede delatar un correo existente,
+porque bcrypt solo corre cuando el correo coincide (ver *Pendiente*).
+
+Con PostgreSQL la clave se compara en la base con `crypt()` de pgcrypto
+(migración `008_autenticacion.sql`) contra el hash bcrypt de `users`. Con JSON
+no hay tabla de usuarios: solo entra el administrador de
+`CASCOVISION_ADMIN_EMAIL` / `CASCOVISION_ADMIN_PASSWORD`, pensado para
+desarrollo.
+
+| Rol | Consulta incidentes, recursos, reporte y evidencia | Revisa incidentes (`PATCH`) | Usuarios y `/config` |
+| --- | --- | --- | --- |
+| `supervisor` | Sí | No (`403`) | No (`403`) |
+| `prevencionista` | Sí | Sí | No (`403`) |
+| `admin` | Sí | Sí | Sí |
+
+`POST /users` (solo admin y solo con PostgreSQL) recibe `email`, `full_name`,
+`role`, `password` (12+ caracteres) y `phone` opcional en formato E.164; un
+correo repetido responde `409`.
+
+`PATCH /incidents/{id}` recibe `{"status": "reviewed" | "closed" | "false_positive" | "open", "comment": "..."}`.
+Cerrar o marcar como falso positivo exige comentario (`422` sin él, misma
+regla que la migración 006); repetir el estado actual responde `409`. Con
+PostgreSQL cada cambio queda en `incident_events` con quién lo hizo.
+
+`GET /incidents/{id}/evidence` devuelve el JPEG que guardó el agente, ya con
+los rostros difuminados. Solo entrega archivos dentro de `incidents/`.
 
 Esta versión integra dos implementaciones que se hicieron en paralelo: el
 registro con token y PostgreSQL de la rama `development_02.10.2026`, y las
@@ -49,8 +96,7 @@ entorno del proceso; la API no lee el archivo `.env` por sí misma.
 
 - **`json`:** para desarrollo y pruebas sin base de datos. Guarda en un archivo
   con escritura atómica. No usar con varios procesos a la vez.
-- **`postgres`:** el almacenamiento de la arquitectura. Antes de usarlo, aplicar
-  en orden las migraciones de `db/migrations/` y después el catálogo inicial:
+- **`postgres`:** el almacenamiento de la arquitectura. Antes de usarlo, aplicar en orden las migraciones de `db/migrations/` y después cargar el catálogo inicial:
 
   ```bash
   psql -d cascovision -f db/migrations/001_create_incidents.sql
@@ -60,6 +106,8 @@ entorno del proceso; la API no lee el archivo `.env` por sí misma.
   psql -d cascovision -f db/migrations/005_indices_incidentes.sql
   psql -d cascovision -f db/seed.sql
   ```
+
+  Para una base de datos existente, registrar sus cámaras y zonas reales antes de activar las claves foráneas. Los datos de demostración son opcionales y deben cargarse después de la migración 005.
 
   `db/seed.sql` carga las cámaras, zonas y balizas de ejemplo; es idempotente
   (`ON CONFLICT DO NOTHING`), así que se puede volver a ejecutar. Lo mismo hace
@@ -113,6 +161,7 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
   "violation_type": "missing_helmet",
   "confidence": 0.94,
   "evidence_path": "incidents/2026/01/15/incidente-143000-000000.jpg",
+  "face_blurred": true,
   "beacon_alert": {"status": "alerted", "latency_ms": 820},
   "person_track_id": 7,
   "violation_types": ["missing_helmet", "missing_reflective_vest"],
@@ -125,11 +174,12 @@ referencia a la evidencia, que el agente ya guardó con los rostros difuminados.
 
 | Campo | Validación |
 | --- | --- |
-| `camera_id`, `zone_id` | No vacíos |
+| `camera_id`, `zone_id` | No vacíos; con PostgreSQL y la migración 005 deben existir en los catálogos |
 | `detected_at` | ISO 8601 **con zona horaria** |
 | `violation_type` | `missing_helmet` o `missing_reflective_vest` |
 | `confidence` | Entre `0` y `1` |
 | `evidence_path` | Relativa: sin `/` inicial, sin `..`, sin `\` y sin `:` (letra de unidad) |
+| `face_blurred` | Booleano opcional; Edge lo envía `true` tras difuminar las personas y guardar la imagen. Por defecto `false` |
 | `beacon_alert.status` | `alerted`, `failed` o `skipped_offline` |
 | `beacon_alert.latency_ms` | Entero ≥ 0 o `null` |
 | `person_track_id` | Opcional. Identificador de seguimiento de la persona (ByteTrack) |
@@ -152,9 +202,14 @@ Respuesta `201 Created`:
 ```
 
 - `401 Unauthorized`: token ausente o incorrecto.
-- `422 Unprocessable Entity`: cuerpo o campos inválidos.
+- `422 Unprocessable Entity`: cuerpo o campos inválidos, o cámara/zona no
+  configurada en PostgreSQL.
 - `503 Service Unavailable`: `EDGE_API_TOKEN` sin configurar, PostgreSQL sin
   configurar o caído, o migraciones pendientes.
+
+La API persiste `face_blurred` como una afirmación del agente Edge; no recibe ni
+inspecciona la imagen. El agente no reporta el incidente si falla el difuminado
+del frame o la escritura de la evidencia.
 
 #### Ciclo de vida del aviso (`event`)
 
@@ -222,9 +277,8 @@ Authorization: Bearer <EDGE_API_TOKEN>
 Ruta del lado del agente Edge (I-04). Devuelve la relación **cámara → zona →
 baliza** que el agente necesita para trabajar sin repetir lo que el dashboard ya
 sabe. Exige el token del agente porque revela direcciones de red: un navegador
-que solo pone `GET /edge/config` se queda en `401`, y las rutas `GET` de
-incidentes y recursos siguen siendo las únicas abiertas hasta que exista JWT
-(ver *Pendiente*).
+que solo pone `GET /edge/config` se queda en `401`, aunque tenga sesión del
+dashboard.
 
 ```json
 {
@@ -325,7 +379,10 @@ duración.
   "terminados": 39,
   "por_estado": {"open": 40, "reviewed": 1, "closed": 1, "false_positive": 0},
   "duracion_media_s": 842.5,
-  "balizas": {"alerted": 12, "failed": 2, "skipped_offline": 28}
+  "balizas": {"alerted": 12, "failed": 2, "skipped_offline": 28},
+  "por_zona": [{"zone_id": "zona-norte", "zone_name": "Zona norte", "total_incidentes": 12, "alertas_activas": 3}],
+  "por_turno": [{"shift_id": 1, "shift_name": "Mañana", "total_incidentes": 18, "alertas_activas": 2}],
+  "por_hora": [{"fecha_local": "2026-10-28", "hora_local": 10, "total_incidentes": 4, "alertas_activas": 1}]
 }
 ```
 
@@ -351,6 +408,13 @@ con `status = open`. **Es correcto, no es un fallo del agente.** Igual vale para
 a la persona: es el mismo `GRACIA_CIERRE_SEGUNDOS` que evita abrir un segundo
 registro cuando ByteTrack reparte otro id.
 
+Las agrupaciones `por_zona`, `por_turno` y `por_hora` se calculan sobre la
+seleccion completa que dejan los filtros, no sobre la pagina. Agrupan por
+`detected_at` en hora local `America/Santiago`; `por_hora` incluye fecha y hora,
+y `por_turno` respeta los horarios de `shifts`, incluido el turno que cruza
+medianoche. Cada grupo informa `total_incidentes` y `alertas_activas` (estado
+de revision `open`).
+
 ## Reglas comunes
 
 - Las fechas de las respuestas se expresan en UTC con sufijo `Z`.
@@ -359,20 +423,15 @@ registro cuando ByteTrack reparte otro id.
 
 ## Pendiente
 
-- **Autenticación de usuarios (RF-17, JWT) y permisos por rol (RNF-07).** Las
-  rutas `GET` de incidentes y recursos quedan abiertas hasta implementarla
-  junto con el dashboard; hoy solo `POST /incidents` y las dos rutas `edge/*`
-  exigen token. Es una de las decisiones abiertas del SRS v0.3 (§4.6).
-- **Acceso a la evidencia.** `evidence_path` es solo una referencia; la API
-  todavía no sirve el archivo.
+- **Sesiones.** Desactivar un usuario no corta un token ya emitido: sigue
+  válido hasta que vence (8 h). Tampoco hay límite de intentos de login, y el
+  tiempo de respuesta del login distingue un correo existente de uno que no.
+- **Edición de usuarios** (cambiar rol, desactivar): hoy solo en la base.
 - **Baliza sin firmware (tarea 4.7).** Hasta que exista, toda baliza se queda
   en `online = false`, `battery_pct = null` y los incidentes terminan en
   `beacon_alert.status = "skipped_offline"`, que es exactamente lo que ocurre.
   El agente ya **está** listo para cambiarlo: envía `PUT /edge/beacons/{id}/status`
   cada 30 segundos y el reporte ya sabe leerlo.
-- **Cambio de estado de un incidente** (revisado, cerrado, falso positivo)
-  desde el dashboard (CU-07). Sin ese endpoint, `por_estado` del reporte solo
-  refleja los que llegan con `status` distinto de `open`.
 
 Cerrado en esta entrega: la tarea **4.15** — `GET /edge/config`,
 `PUT /edge/beacons/{id}/status` y `GET /reports`, con el reporte en los dos

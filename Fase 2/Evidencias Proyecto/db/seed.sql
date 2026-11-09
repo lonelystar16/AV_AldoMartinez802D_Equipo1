@@ -3,8 +3,8 @@
 -- Es lo minimo para que `GET /edge/config` tenga algo que entregar y el
 -- reporte no salga con claves huerfanas. Idempotente: se puede volver a correr.
 --
---   psql -d cascovision -f db/migrations/004_modelo_recursos.sql
---   psql -d cascovision -f db/migrations/005_indices_incidentes.sql
+--   psql -d cascovision -f db/migrations/004_modelo_completo.sql
+--   psql -d cascovision -f db/migrations/005_claves_incidentes.sql
 --   psql -d cascovision -f db/seed.sql
 
 INSERT INTO cameras (id, name, rtsp_url, location, active) VALUES

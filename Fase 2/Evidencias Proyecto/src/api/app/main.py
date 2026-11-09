@@ -8,10 +8,12 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import almacen, config
+from . import almacen, auth, config
+from .auth import requiere_rol, usuario_actual
 
 # Carga el .env del proyecto si existe. Las variables ya presentes en el
 # entorno tienen prioridad, de modo que se puede sobreescribir sin editar el
@@ -50,6 +52,7 @@ class IncidentCreate(BaseModel):
     violation_type: ViolationType
     confidence: float = Field(ge=0, le=1)
     evidence_path: str = Field(min_length=1)
+    face_blurred: bool = False
     beacon_alert: BeaconAlert
     person_track_id: int | None = Field(default=None, ge=0)
     violation_types: list[ViolationType] | None = None
@@ -124,6 +127,7 @@ class Incident(BaseModel):
     violation_types: list[ViolationType] | None = None
     confidence: float
     evidence_path: str
+    face_blurred: bool = False
     beacon_alert: BeaconAlert
     person_track_id: int | None = None
     status: IncidentStatus
@@ -222,6 +226,9 @@ class ReporteResumen(BaseModel):
     # duración que promediar, y un 0.0 sugeriría lo contrario.
     duracion_media_s: float | None = None
     balizas: dict[str, int]
+    por_zona: list[dict[str, str | int]]
+    por_turno: list[dict[str, str | int]]
+    por_hora: list[dict[str, str | int]]
 
 
 class ReporteIncidente(Incident):
@@ -275,6 +282,10 @@ def get_store() -> almacen.Almacen:
 def _store_call(funcion, *args):
     try:
         return funcion(*args)
+    except almacen.ReferenciaIncidenteInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except almacen.Conflicto as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except almacen.AlmacenNoDisponible as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -286,7 +297,7 @@ def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "cascovision-api"}
 
 
-@app.get("/config")
+@app.get("/config", dependencies=[Depends(requiere_rol("admin"))])
 def config_check() -> dict:
     """Informa de la configuración efectiva, sin exponer valores secretos.
 
@@ -305,6 +316,73 @@ def config_check() -> dict:
     }
 
 
+# ==================== Usuarios y sesión (RF-16, RF-17) ====================
+
+Role = Literal["admin", "prevencionista", "supervisor"]
+PATRON_CORREO = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class User(BaseModel):
+    id: UUID
+    email: str
+    full_name: str | None = None
+    phone: str | None = None
+    role: Role
+    active: bool = True
+    last_login_at: datetime | None = None
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    user: User
+
+
+class UserCreate(BaseModel):
+    email: str = Field(pattern=PATRON_CORREO, max_length=254)
+    full_name: str = Field(min_length=1, max_length=120)
+    phone: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{1,14}$")
+    role: Role
+    password: str = Field(min_length=12, max_length=200)
+
+
+@app.post("/auth/login", response_model=LoginResponse)
+def login(datos: LoginRequest, store: almacen.Almacen = Depends(get_store)) -> LoginResponse:
+    """Inicio de sesión del dashboard. Mismo error para correo o clave malos."""
+
+    usuario = _store_call(store.verificar_credenciales, datos.email, datos.password)
+    if usuario is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token, vence = auth.emitir_token(usuario)
+    return LoginResponse(access_token=token, expires_at=vence, user=User(**usuario))
+
+
+@app.get("/auth/me")
+def me(usuario: dict = Depends(usuario_actual)) -> dict:
+    """Usuario del token, para que el dashboard sepa qué mostrar según el rol."""
+
+    return usuario
+
+
+@app.get("/users", response_model=list[User], dependencies=[Depends(requiere_rol("admin"))])
+def list_users(store: almacen.Almacen = Depends(get_store)) -> list[User]:
+    return [User(**u) for u in _store_call(store.listar_usuarios)]
+
+
+@app.post("/users", status_code=201, response_model=User,
+          dependencies=[Depends(requiere_rol("admin"))])
+def create_user(datos: UserCreate, store: almacen.Almacen = Depends(get_store)) -> User:
+    """Alta de usuarios por el administrador (CU-11). Solo con PostgreSQL."""
+
+    return User(**_store_call(store.crear_usuario, datos.model_dump()))
+
+
 @app.post("/incidents", status_code=201, response_model=IncidentCreated)
 def create_incident(
     incident: IncidentCreate,
@@ -320,6 +398,9 @@ def create_incident(
     """
 
     record = incident.model_dump(mode="json")
+    record["violation_types"] = record["violation_types"] or []
+    if record["violation_type"] not in record["violation_types"]:
+        record["violation_types"].append(record["violation_type"])
     ahora = datetime.now(timezone.utc).isoformat()
     episodio = record.get("episode_id")
 
@@ -358,7 +439,7 @@ def create_incident(
     )
 
 
-@app.get("/incidents", response_model=list[Incident])
+@app.get("/incidents", response_model=list[Incident], dependencies=[Depends(usuario_actual)])
 def list_incidents(
     zone_id: str | None = None,
     camera_id: str | None = None,
@@ -383,7 +464,7 @@ def list_incidents(
     return [Incident(**d) for d in _store_call(store.listar, filtros, page, limit)]
 
 
-@app.get("/incidents/{incident_id}", response_model=Incident)
+@app.get("/incidents/{incident_id}", response_model=Incident, dependencies=[Depends(usuario_actual)])
 def get_incident(
     incident_id: str,
     store: almacen.Almacen = Depends(get_store),
@@ -394,6 +475,63 @@ def get_incident(
     if datos is None:
         raise HTTPException(status_code=404, detail="Incident not found")
     return Incident(**datos)
+
+
+class StatusChange(BaseModel):
+    status: IncidentStatus
+    comment: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def closing_needs_comment(self):
+        # Misma regla que la migración 006 aplica a incident_events.
+        if self.status in ("closed", "false_positive") and not (self.comment or "").strip():
+            raise ValueError("comment is required to close or mark as false positive")
+        return self
+
+
+@app.patch("/incidents/{incident_id}", response_model=Incident)
+def review_incident(
+    incident_id: str,
+    cambio: StatusChange,
+    usuario: dict = Depends(requiere_rol("admin", "prevencionista")),
+    store: almacen.Almacen = Depends(get_store),
+) -> Incident:
+    """Revisión del incidente por el prevencionista (RF-14).
+
+    El supervisor solo consulta: no cambia estados.
+    """
+
+    datos = _store_call(
+        store.cambiar_estado, incident_id, cambio.status,
+        (cambio.comment or "").strip() or None, usuario["id"],
+    )
+    if datos is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return Incident(**datos)
+
+
+# Carpeta que contiene incidents/: el agente guarda la evidencia ahí y manda la
+# ruta relativa (incidents/AAAA/MM/DD/archivo.jpg). En Docker es el volumen
+# `evidencia`, montado en solo lectura en la API.
+RAIZ_EVIDENCIA = config.RAIZ / "Fase 2" / "Evidencias Proyecto"
+
+
+@app.get("/incidents/{incident_id}/evidence", dependencies=[Depends(usuario_actual)])
+def get_evidence(
+    incident_id: str,
+    store: almacen.Almacen = Depends(get_store),
+) -> FileResponse:
+    """Imagen de evidencia, ya difuminada por el agente (RF-06, RF-19)."""
+
+    datos = _store_call(store.obtener, incident_id)
+    if datos is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    raiz = (RAIZ_EVIDENCIA / "incidents").resolve()
+    archivo = (RAIZ_EVIDENCIA / datos["evidence_path"]).resolve()
+    # La ruta ya se valida al registrar el incidente; esto cubre datos viejos.
+    if not archivo.is_relative_to(raiz) or not archivo.is_file():
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return FileResponse(archivo, media_type="image/jpeg")
 
 
 # ==================== Recursos: cámaras, zonas y balizas ====================
@@ -407,14 +545,14 @@ def _buscar(listado: list[dict], identificador: str) -> dict | None:
     return next((d for d in listado if d.get("id") == identificador), None)
 
 
-@app.get("/cameras", response_model=list[Camera])
+@app.get("/cameras", response_model=list[Camera], dependencies=[Depends(usuario_actual)])
 def list_cameras(store: almacen.Almacen = Depends(get_store)) -> list[Camera]:
     """Catálogo de cámaras IP del sistema, con su ubicación y si están activas."""
 
     return [Camera(**d) for d in _store_call(store.listar_camaras)]
 
 
-@app.get("/cameras/{camera_id}", response_model=Camera)
+@app.get("/cameras/{camera_id}", response_model=Camera, dependencies=[Depends(usuario_actual)])
 def get_camera(
     camera_id: str,
     store: almacen.Almacen = Depends(get_store),
@@ -427,7 +565,7 @@ def get_camera(
     return Camera(**camara)
 
 
-@app.get("/zones", response_model=list[Zone])
+@app.get("/zones", response_model=list[Zone], dependencies=[Depends(usuario_actual)])
 def list_zones(
     camera_id: str | None = None,
     store: almacen.Almacen = Depends(get_store),
@@ -441,7 +579,7 @@ def list_zones(
     return [Zone(**d) for d in _store_call(store.listar_zonas, camera_id)]
 
 
-@app.get("/beacons", response_model=list[Beacon])
+@app.get("/beacons", response_model=list[Beacon], dependencies=[Depends(usuario_actual)])
 def list_beacons(store: almacen.Almacen = Depends(get_store)) -> list[Beacon]:
     """Balizas zonales y su estado según el último heartbeat que informaron.
 
@@ -538,7 +676,7 @@ def _zona_horaria_requerida(nombre: str, valor: datetime | None) -> None:
         )
 
 
-@app.get("/reports", response_model=Reporte)
+@app.get("/reports", response_model=Reporte, dependencies=[Depends(usuario_actual)])
 def get_report(
     desde: datetime | None = None,
     hasta: datetime | None = None,
