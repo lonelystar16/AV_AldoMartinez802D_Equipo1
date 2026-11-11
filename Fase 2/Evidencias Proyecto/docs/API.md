@@ -311,13 +311,20 @@ Content-Type: application/json
 El `id` va en la ruta: minúsculas, dígitos y guiones, hasta 40 caracteres. Una
 IP o una zona que ya usa otra baliza responden `409` (`Beacon IP is already in
 use`, `Zone already has a beacon`). No hay `DELETE`: los incidentes apuntan a
-cámaras y zonas, así que se desactivan con `active: false`. Ese campo queda
-guardado, pero el agente todavía no lo consulta.
+cámaras y zonas, así que se desactivan con `active: false`.
 
-El agente Edge vuelve a pedir `GET /edge/config` en cada latido (30 s) y aplica
-sin reiniciarse los cambios de **la zona que ya vigila** (polígono y nombre).
-Vigila una zona por cámara, la primera por `id`, elegida al arrancar: una zona
-nueva de la misma cámara y la URL de la baliza se toman al reiniciar el agente.
+El agente Edge vuelve a pedir `GET /edge/config` en cada latido (30 s), también
+con la cámara caída o en pausa, y aplica sin reiniciarse:
+
+- **Polígono y nombre** de la zona que ya vigila.
+- **`rtsp_url`** de la cámara: la reabre con la URL nueva. Manda sobre `fuente`
+  del JSON local, pero no sobre `--fuente` ni `CAMARA_FUENTE`, que son la cámara
+  fija del sitio (y las únicas que pueden traer usuario y clave).
+- **`active`** de la cámara o de su zona: en `false` cierra con `fin` los
+  incidentes abiertos, suelta la cámara y no analiza; al volver a `true`, reanuda.
+
+Si la API no responde, sigue con lo último que supo. Una zona nueva de la misma
+cámara y la URL de la baliza se toman al reiniciar el agente.
 
 En una base con los roles de `db/roles.sql`, el rol de la API necesita los
 permisos de escritura de la 4.19: vuelva a ejecutar `roles.sql` después de
@@ -326,7 +333,7 @@ actualizar.
 ### `GET /edge/config`
 
 ```http
-GET /edge/config?camera_id=camara-01
+GET /edge/config?camera_id=camara-01&zone_id=zona-norte
 Authorization: Bearer <EDGE_API_TOKEN>
 ```
 
@@ -334,7 +341,10 @@ Ruta del lado del agente Edge (I-04). Devuelve la relación **cámara → zona �
 baliza** que el agente necesita para trabajar sin repetir lo que el dashboard ya
 sabe. Exige el token del agente porque revela direcciones de red: un navegador
 que solo pone `GET /edge/config` se queda en `401`, aunque tenga sesión del
-dashboard.
+dashboard. `zone_id` es la zona que vigila el agente; sin él, o si ya no existe,
+va la primera de la cámara. Cámara y zona se entregan aunque estén
+desactivadas, con su `active`, para que el agente distinga una pausa de una API
+caída.
 
 ```json
 {

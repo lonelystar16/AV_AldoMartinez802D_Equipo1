@@ -720,6 +720,7 @@ def put_beacon(
 @app.get("/edge/config", response_model=EdgeConfig)
 def get_edge_config(
     camera_id: str = Query(min_length=1),
+    zone_id: str | None = Query(default=None, min_length=1),
     _: None = Depends(require_edge_token),
     store: almacen.Almacen = Depends(get_store),
 ) -> EdgeConfig:
@@ -732,6 +733,10 @@ def get_edge_config(
     El agente conserva su ``config.json`` como respaldo: un borde no puede
     depender de la API para arrancar. Si la zona no tiene baliza, el campo
     ``beacon`` viene en null y el agente avisa solo a la API.
+
+    Cámara y zona van aunque estén desactivadas, con su ``active``: así el
+    agente distingue "desactivada en el dashboard" (pausa) de "API caída"
+    (sigue con lo último que supo).
     """
 
     camara = _buscar(_store_call(store.listar_camaras), camera_id)
@@ -741,9 +746,10 @@ def get_edge_config(
     zonas = _store_call(store.listar_zonas, camera_id)
     if not zonas:
         raise HTTPException(status_code=404, detail="No zones for this camera")
-    # Una zona por cámara en la práctica; si hubiera más, el agente vigila la
-    # primera, que es la que informa en su configuración local.
-    zona = zonas[0]
+    # El agente pide la zona que vigila, para recibir su estado y no el de
+    # otra zona de la misma cámara. Sin zone_id (o si ya no existe), la primera.
+    zona = _buscar(zonas, zone_id) if zone_id else None
+    zona = zona or zonas[0]
 
     baliza = next(
         (b for b in _store_call(store.listar_beacons) if b.get("zone_id") == zona["id"]),

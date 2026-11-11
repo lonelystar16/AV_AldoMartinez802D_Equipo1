@@ -88,7 +88,7 @@ services:
     environment:
       EDGE_API_TOKEN: ${EDGE_API_TOKEN:?Falta EDGE_API_TOKEN en .env}
       BALIZA_TOKEN: ${BALIZA_TOKEN:?Falta BALIZA_TOKEN en .env}
-      # En la faena: rtsp://usuario:clave@IP:554/... (si no se define, manda "fuente" de edge.json).
+      # Fija la camara (rtsp://usuario:clave@IP:554/...). Vacia: manda la URL del dashboard.
       CAMARA_FUENTE: ${CAMARA_FUENTE:-}
     volumes:
       - type: bind

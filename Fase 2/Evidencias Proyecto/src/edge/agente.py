@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -197,6 +198,13 @@ def abrir(fuente: str):
                                                      cv2.CAP_PROP_READ_TIMEOUT_MSEC, TIMEOUT_CAMARA_MS])
 
 
+def soltar(cap):
+    """Libera la captura, si hay una, y devuelve None para olvidarla."""
+    if cap is not None:
+        cap.release()
+    return None
+
+
 def guardar_cuadro(frame, carpeta: Path) -> None:
     """Deja el último cuadro (ya difuminado) para la vista en vivo del monitor."""
     carpeta.mkdir(parents=True, exist_ok=True)
@@ -220,7 +228,8 @@ def _configuracion_remota(cfg: dict, token: str) -> dict | None:
     agente debe vigilar. En ese caso manda el JSON local, que es el respaldo:
     un agente no puede depender de una API para arrancar.
     """
-    url = f"{cfg['api'].rstrip('/')}/edge/config?camera_id={cfg['camera_id']}"
+    consulta = urllib.parse.urlencode({"camera_id": cfg["camera_id"], "zone_id": cfg["zone_id"]})
+    url = f"{cfg['api'].rstrip('/')}/edge/config?{consulta}"
     peticion = urllib.request.Request(
         url, headers={"Authorization": f"Bearer {token}"}
     )
@@ -282,6 +291,31 @@ def recargar_zona(monitor: "MonitorZonal", baliza: "ClienteBaliza", cfg: dict,
     return True
 
 
+def elegir_fuente(fuente_fija: str | None, cfg: dict, remota: dict | None) -> str:
+    """La cámara que se abre: `--fuente` o `CAMARA_FUENTE`, si no la `rtsp_url`
+    que administra el dashboard, y si la API no responde, la del JSON local.
+
+    La fija del sitio gana porque la API no acepta URLs con usuario y clave
+    (`CameraIn`): una cámara con credenciales solo puede venir del entorno.
+    """
+    if fuente_fija:
+        return str(fuente_fija)
+    url = ((remota or {}).get("camera") or {}).get("rtsp_url")
+    return str(url or cfg["fuente"])
+
+
+def vigilancia_activa(cfg: dict, remota: dict | None) -> bool:
+    """False si en el dashboard se desactivó la cámara o la zona que vigila
+    este agente. Sin respuesta de la API se sigue vigilando con lo último que
+    se supo: un borde no deja de cuidar a nadie porque la API se cayó."""
+    if remota is None:
+        return True
+    if not remota.get("camera", {}).get("active", True):
+        return False
+    zona = remota.get("zone", {})
+    return remota.get("zone_id") != cfg["zone_id"] or bool(zona.get("active", True))
+
+
 def informar_baliza(api: str, beacon_id: str, token: str, baliza: "ClienteBaliza") -> None:
     """Informa a la API el estado de su baliza zonal (I-05, RNF-14).
 
@@ -338,8 +372,11 @@ def main() -> None:
     # Sin beacon_id no hay a quién informar: la API puede no tener baliza para
     # esta zona, y eso no impide que el agente trabaje.
     beacon_id = (remota.get("beacon") or {}).get("id") if remota else None
-    # La URL de la cámara puede traer credenciales: mejor por variable de entorno.
-    fuente = str(args.fuente or os.getenv("CAMARA_FUENTE") or cfg["fuente"])
+    # `--fuente` o CAMARA_FUENTE fijan la cámara en este sitio (pueden traer
+    # credenciales); si no, manda la rtsp_url que edita el dashboard.
+    fuente_fija = args.fuente or os.getenv("CAMARA_FUENTE")
+    fuente = elegir_fuente(fuente_fija, cfg, remota)
+    activa = vigilancia_activa(cfg, remota)
     datos = PROYECTO / cfg.get("carpeta_datos", "edge-datos")
     baliza = ClienteBaliza(cfg["baliza"]["url"], os.getenv("BALIZA_TOKEN", ""),
                            cfg["zone_id"], cfg["zone_name"], cfg["baliza"].get("duracion_s", 10))
@@ -362,18 +399,58 @@ def main() -> None:
                            carpeta_evidencia=PROYECTO / "incidents",
                            al_registrar=al_registrar, ping_segundos=args.ping)
 
-    cap = abrir(fuente)
-    if not cap.isOpened():
-        raise IOError(f"No se pudo abrir la fuente de video: {fuente}")
-    es_archivo = Path(fuente).is_file()
     periodo = 1.0 / args.fps
-    paso = max(1, round((cap.get(cv2.CAP_PROP_FPS) or 30) / args.fps)) if es_archivo else 1
     print(f"Agente Edge · cámara {cfg['camera_id']} · zona {cfg['zone_id']} · {args.fps:g} FPS")
-    print(f"Fuente: {'archivo' if es_archivo else 'en vivo'} · API {cfg['api']} · baliza {baliza.url or 'sin configurar'}")
+    print(f"API {cfg['api']} · baliza {baliza.url or 'sin configurar'}")
+    if not activa:
+        print("Cámara o zona desactivada en el dashboard: vigilancia en pausa.")
 
+    cap, es_archivo, paso = None, False, 1
     n, ultimo, ultimo_latido = 0, 0.0, float("-inf")
     try:
         while True:
+            ahora = time.monotonic()
+            # El latido va antes de leer la cámara: con la cámara caída, una URL
+            # mala o la vigilancia en pausa, el agente igual toma lo que se
+            # corrija en el dashboard, sin reiniciarse.
+            if ahora - ultimo_latido >= 30:  # heartbeat de la baliza (RNF-14)
+                ultimo_latido = ahora
+                # Sin respuesta de la API se sigue con lo último conocido.
+                nueva = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
+                if recargar_zona(monitor, baliza, cfg, nueva):
+                    print(f"  Zona actualizada desde la API · {cfg['zone_name']}")
+                if nueva is not None:
+                    remota = nueva
+                    beacon_id = (remota.get("beacon") or {}).get("id")
+                    if elegir_fuente(fuente_fija, cfg, remota) != fuente:
+                        fuente = elegir_fuente(fuente_fija, cfg, remota)
+                        print("  URL de la cámara cambiada en el dashboard: se reabre.")
+                        cap = soltar(cap)
+                    if vigilancia_activa(cfg, remota) != activa:
+                        activa = not activa
+                        if activa:
+                            print("  Cámara y zona activas: se reanuda la vigilancia.")
+                        else:
+                            print("  Cámara o zona desactivada en el dashboard: vigilancia en pausa.")
+                            monitor.cerrar_episodios()
+                            cap = soltar(cap)
+                if baliza.revisar():
+                    print(f"  Baliza {'en línea' if baliza.en_linea else 'FUERA DE LÍNEA'}")
+                informar_baliza(cfg["api"], beacon_id,
+                                os.getenv("EDGE_API_TOKEN", ""), baliza)
+
+            if not activa:
+                time.sleep(1)
+                continue
+            if cap is None:
+                cap = abrir(fuente)
+                # Un archivo o una webcam que no abren son un error del sitio; una
+                # cámara IP se reintenta, por si la URL se corrige en el dashboard.
+                if not cap.isOpened() and "://" not in fuente:
+                    raise IOError(f"No se pudo abrir la fuente de video: {fuente}")
+                es_archivo = Path(fuente).is_file()
+                paso = max(1, round((cap.get(cv2.CAP_PROP_FPS) or 30) / args.fps)) if es_archivo else 1
+                print(f"Fuente: {'archivo' if es_archivo else 'en vivo'}")
             if not cap.grab():
                 if es_archivo and args.bucle:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -381,9 +458,8 @@ def main() -> None:
                 if es_archivo:
                     break
                 print("Cámara sin señal; se reconecta en 2 s.")
-                cap.release()
+                cap = soltar(cap)
                 time.sleep(2)
-                cap = abrir(fuente)
                 continue
             n += 1
             ahora = time.monotonic()
@@ -395,22 +471,6 @@ def main() -> None:
             if not ok:
                 continue
 
-            if ahora - ultimo_latido >= 30:  # heartbeat de la baliza (RNF-14)
-                ultimo_latido = ahora
-                # Se pregunta en cada latido: así toma la zona editada en el dashboard,
-                # y también la de la API si arrancó antes que ella. Sin respuesta,
-                # sigue con la última conocida.
-                nueva = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
-                if recargar_zona(monitor, baliza, cfg, nueva):
-                    print(f"  Zona actualizada desde la API · {cfg['zone_name']}")
-                if nueva is not None:
-                    remota = nueva
-                    beacon_id = (remota.get("beacon") or {}).get("id")
-                if baliza.revisar():
-                    print(f"  Baliza {'en línea' if baliza.en_linea else 'FUERA DE LÍNEA'}")
-                informar_baliza(cfg["api"], beacon_id,
-                                os.getenv("EDGE_API_TOKEN", ""), baliza)
-
             monitor.procesar(frame)
             guardar_cuadro(frame, datos)
             if not args.sin_ventana:
@@ -420,12 +480,11 @@ def main() -> None:
             if es_archivo:
                 time.sleep(periodo)  # el archivo avanza al ritmo de una cámara
     finally:
-        cap.release()
+        soltar(cap)
         cv2.destroyAllWindows()
         reporte.esperar()
         if reporte.reporte.pendientes:
             print(f"Quedan {len(reporte.reporte.pendientes)} incidentes en la cola local.")
-
 
 if __name__ == "__main__":
     main()
