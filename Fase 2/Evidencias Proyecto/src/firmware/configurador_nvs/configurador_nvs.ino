@@ -75,13 +75,44 @@ void setup() {
       !beaconGuardado.isEmpty() && !zonaGuardada.isEmpty() &&
       !tokenGuardado.isEmpty()) {
     if (!apiGuardada.isEmpty()) {
-      mostrarPantalla("Ya configurada", "Token en Serial");
-      Serial.println("Ya existe una configuracion completa en NVS.");
-      Serial.printf("beacon_id: %s\nzone_id: %s\n", beaconGuardado.c_str(),
-                    zonaGuardada.c_str());
-      Serial.println("BALIZA_TOKEN guardado:");
-      Serial.println(tokenGuardado);
+      String reconfigurar = leerDato("Cambiar Wi-Fi/API? SI/NO:", 3);
+      reconfigurar.toLowerCase();
+      if (reconfigurar != "si") {
+        mostrarPantalla("Sin cambios", "Config conservada", "Token en Serial");
+        Serial.println("Se conserva la configuracion NVS existente.");
+        Serial.printf("beacon_id: %s\nzone_id: %s\n", beaconGuardado.c_str(),
+                      zonaGuardada.c_str());
+        Serial.println("BALIZA_TOKEN guardado:");
+        Serial.println(tokenGuardado);
+        preferencias.end();
+        return;
+      }
+
+      String ssid = leerDato("Nuevo SSID Wi-Fi (max. 32):", 32);
+      String password = leerDato("Nueva contrasena Wi-Fi (max. 63):", 63);
+      String apiUrl = leerDato("Nueva URL API http://IP:8000:", 63);
+      while (!apiUrl.startsWith("http://")) {
+        Serial.println("La URL debe comenzar con http://");
+        apiUrl = leerDato("Nueva URL API http://IP:8000:", 63);
+      }
+      while (apiUrl.endsWith("/")) apiUrl.remove(apiUrl.length() - 1);
+
+      bool guardado = preferencias.putString("wifi_ssid", ssid) > 0;
+      guardado = (preferencias.putString("wifi_password", password) > 0) && guardado;
+      guardado = (preferencias.putString("api_url", apiUrl) > 0) && guardado;
+      const bool verificado = guardado &&
+                              preferencias.getString("wifi_ssid", "") == ssid &&
+                              preferencias.getString("wifi_password", "") == password &&
+                              preferencias.getString("api_url", "") == apiUrl &&
+                              preferencias.getString("beacon_id", "") == beaconGuardado &&
+                              preferencias.getString("zone_id", "") == zonaGuardada &&
+                              preferencias.getString("token", "") == tokenGuardado;
       preferencias.end();
+      mostrarPantalla(verificado ? "Red actualizada" : "Error al guardar",
+                      verificado ? "Token conservado" : "Revisa Monitor");
+      Serial.println(verificado
+                         ? "Wi-Fi y URL API actualizados; IDs y token conservados."
+                         : "ERROR: no se pudo guardar o verificar la configuracion.");
       return;
     }
 
