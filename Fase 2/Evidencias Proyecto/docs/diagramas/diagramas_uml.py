@@ -127,7 +127,7 @@ def clases(salida: Path):
                 ["+ health()", "+ create_incident(inc)", "+ list_incidents(f)",
                  "+ get_incident(id)", "+ get_evidence(id)", "+ edge_config()", "+ login(u, clave)"],
                 este="FastAPI", existe=True)
-    noti = clase(ax, 92, 75, 16, "Notificador", ["- twilio, smtp"], ["+ notificar(inc)"])
+    noti = clase(ax, 92, 75, 16, "Notificador", ["- smtp"], ["+ notificar(inc)"])
     aut = clase(ax, 92, 66, 16, "ServicioAuth", ["- jwt_secret"], ["+ verificar(jwt, roles)"])
     inc = clase(ax, 68.5, 55, 18, "IncidentCreate",
                 ["camera_id, zone_id", "detected_at", "violation_type(s)", "confidence",
@@ -174,10 +174,10 @@ def clases(salida: Path):
 def secuencia(salida: Path):
     fig, ax = lienzo("CascoVision · Diagrama de secuencia: detección y alerta (CU-02 y CU-04)")
     actores = [("Cámara IP", 7), ("Agente Edge", 22), ("Baliza zonal", 38), ("API REST", 54),
-               ("PostgreSQL", 69), ("Dashboard", 83), ("Twilio · SMTP", 98)]
+               ("PostgreSQL", 69), ("Dashboard", 83), ("Servidor SMTP", 98)]
     top, bottom = 74, 4
     for nombre, x in actores:
-        caja(ax, x - 6.2, top, 12.4, 4.2, nombre, fill=GRIS if nombre in ("Cámara IP", "Baliza zonal", "Twilio · SMTP") else AZUL,
+        caja(ax, x - 6.2, top, 12.4, 4.2, nombre, fill=GRIS if nombre in ("Cámara IP", "Baliza zonal", "Servidor SMTP") else AZUL,
              tsize=8.0)
         ax.plot([x, x], [bottom, top], color="#7F7F7F", lw=0.9, ls=(0, (4, 3)), zorder=1)
 
@@ -230,7 +230,7 @@ def secuencia(salida: Path):
     msg(27.5, "PostgreSQL", "API REST", "ok", ret=True)
     msg(23, "API REST", "Agente Edge", "9: 201 {id, status: open}", ret=True)
     msg(18.5, "API REST", "Dashboard", "10: evento WS (≤ 3 s)")
-    msg(13, "API REST", "Twilio · SMTP", "11: SMS y correo (segundo plano, ≤ 30 s)")
+    msg(13, "API REST", "Servidor SMTP", "11: correo (segundo plano, ≤ 30 s)")
 
     ax.add_patch(Rectangle((14, 21.5), 32, 18.5, fc="none", ec="#7F7F7F", lw=0.9, zorder=2))
     ax.add_patch(Polygon([(14, 40), (19, 40), (19, 38.8), (18.2, 38.1), (14, 38.1)], closed=True,
@@ -308,7 +308,7 @@ def componentes(salida: Path):
     componente(ax, 57, 27, 12.5, 9, "Autenticación", ["JWT · roles"])
     componente(ax, 70.5, 27, 12.5, 9, "Tiempo real", ["WebSocket"])
     componente(ax, 57, 15.5, 12.5, 9, "Almacen", ["JSON · Postgres"])
-    componente(ax, 70.5, 15.5, 12.5, 9, "Notificador", ["SMS · correo"])
+    componente(ax, 70.5, 15.5, 12.5, 9, "Notificador", ["correo"])
 
     interfaz(ax, 47, 42, "IIncidentes", "abajo", desde=(55, 42))
     interfaz(ax, 47, 33.5, "IConfigEdge", "abajo", desde=(55, 33.5))
@@ -326,8 +326,8 @@ def componentes(salida: Path):
     # Base de datos y externos
     cilindro(ax, 57, 1.5, 12.5, 8.5, "PostgreSQL", "component")
     requiere(ax, (63.25, 15.5), (63.25, 10), "SQL", (66, 12.8))
-    componente(ax, 90, 13, 18, 10, "Twilio · SMTP", ["servicios externos"], fill=GRIS)
-    requiere(ax, (83, 20), (90, 18), "HTTPS · SMTP", (86.6, 21.6))
+    componente(ax, 90, 13, 18, 10, "Servidor SMTP", ["servicio externo"], fill=GRIS)
+    requiere(ax, (83, 20), (90, 18), "SMTP", (86.6, 21.6))
 
     # Cámaras
     componente(ax, 4, 15, 17, 9, "Cámara IP", ["firmware existente"], fill=GRIS)

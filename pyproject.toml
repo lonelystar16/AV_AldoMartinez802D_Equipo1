@@ -16,6 +16,9 @@ dependencies = [
     "uvicorn>=0.54.0",
     "httpx>=0.28.1",
     "pyjwt>=2.10",
+    # Reportes en PDF y Excel (tarea 4.12).
+    "fpdf2>=2.8",
+    "xlsxwriter>=3.2",
 ]
 
 # La API no necesita opencv ni torch: son del agente Edge y del detector.

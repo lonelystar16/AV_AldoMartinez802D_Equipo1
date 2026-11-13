@@ -40,7 +40,13 @@ const TRADUCCION = {
   "Incident already has that status": "El incidente ya tiene ese estado.",
   "Already exists": "Ya existe un usuario con ese correo.",
   "JWT_SECRET is not configured": "La API no tiene configurado JWT_SECRET.",
-  "User management requires PostgreSQL storage": "Crear usuarios requiere PostgreSQL.",
+  "User management requires PostgreSQL storage": "Gestionar usuarios requiere PostgreSQL.",
+  "You cannot deactivate or demote yourself": "No puedes desactivarte ni quitarte el rol de administrador.",
+  "User not found": "El usuario ya no existe.",
+  "Resource management requires PostgreSQL storage": "Editar cámaras, zonas y balizas requiere PostgreSQL.",
+  "Beacon IP is already in use": "Otra baliza ya usa esa IP.",
+  "Zone already has a beacon": "Esa zona ya tiene una baliza.",
+  "Camera or zone is not configured": "La cámara o la zona elegida no existe.",
 };
 
 async function detalle(respuesta) {
