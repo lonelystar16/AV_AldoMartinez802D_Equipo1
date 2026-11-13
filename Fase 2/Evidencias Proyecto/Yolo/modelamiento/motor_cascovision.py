@@ -89,7 +89,7 @@ SOLAPAMIENTO_MIN = 0.35
 UMBRAL_EPP_CUBRE_PERSONA = 0.7
 
 VENTANA_SUAVIZADO = 5
-MIN_FRAMES_PARA_ALERTAR = 2
+MIN_FRAMES_PARA_ALERTAR = 4
 FRAME_PARA_DESCARTAR = 45
 
 # La deteccion de 'Person' parpadea (gafas, sombra, perfil) y ByteTrack reparte
