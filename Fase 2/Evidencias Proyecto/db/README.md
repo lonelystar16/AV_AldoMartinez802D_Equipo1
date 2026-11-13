@@ -16,6 +16,13 @@ El ejecutor solicita el usuario propietario del esquema y su clave con entrada
 oculta. En bases con incidentes existentes, cargue primero las cámaras y zonas
 reales requeridas por 005; no aplique catálogos demo a producción.
 
+La API debe conectarse como `cascovision`, no como el propietario ni como un
+superusuario. Aplique `roles.sql` como administrador después de las migraciones,
+asigne una clave al rol `cascovision` y configure `POSTGRES_USER` y
+`POSTGRES_PASSWORD` de la API con esas credenciales. El rol de ejecución puede
+leer incidentes y catálogos, registrar incidentes e informar el heartbeat de la
+baliza; no recibe acceso a `users` ni a tablas nuevas automáticamente.
+
 ## Roles de PostgreSQL
 
 Después de migrar, ejecute `psql -X -d <bd> -v ON_ERROR_STOP=1 -f "Fase 2/Evidencias Proyecto/db/roles.sql"`
