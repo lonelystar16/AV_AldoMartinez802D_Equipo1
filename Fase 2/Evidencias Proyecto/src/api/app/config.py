@@ -19,10 +19,10 @@ RAIZ = next((p for p in Path(__file__).resolve().parents if (p / "Fase 2").is_di
 
 RUTA_ENV = RAIZ / "Fase 2" / "Evidencias Proyecto" / ".env"
 
-# Variables que la API necesita para funcionar. `EDGE_API_TOKEN` es la unica
-# imprescindible: sin ella, `POST /incidents` responde 503.
+# Variables compartidas y de almacenamiento que usa la API.
 VARIABLES = {
     "EDGE_API_TOKEN": "Token compartido que el agente Edge envia como Bearer. Obligatorio para registrar incidentes",
+    "BALIZA_TOKEN": "Token compartido con la baliza para consultar estado y subir logs",
     "CASCOVISION_STORAGE": "Almacenamiento de incidentes: 'json' (por defecto) o 'postgres'",
     "CASCOVISION_INCIDENTES": "Ruta del archivo JSON. Por defecto 'db/incidents.json'",
     "POSTGRES_DB": "Base de datos PostgreSQL. Obligatoria con CASCOVISION_STORAGE=postgres",
@@ -84,6 +84,8 @@ def faltantes_obligatorias() -> list[str]:
     faltantes = []
     if not os.getenv("EDGE_API_TOKEN"):
         faltantes.append("EDGE_API_TOKEN")
+    if not os.getenv("BALIZA_TOKEN"):
+        faltantes.append("BALIZA_TOKEN")
     if os.getenv("CASCOVISION_STORAGE", "json").lower() == "postgres":
         for clave in ("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"):
             if not os.getenv(clave):

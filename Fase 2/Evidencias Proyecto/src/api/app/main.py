@@ -36,6 +36,10 @@ class BeaconAlert(BaseModel):
     latency_ms: int | None = Field(ge=0)
 
 
+class BeaconLog(BaseModel):
+    message: str = Field(min_length=1, max_length=4096)
+
+
 class IncidentCreate(BaseModel):
     """Incidente informado por el agente Edge.
 
@@ -270,6 +274,30 @@ def require_edge_token(
         )
 
 
+def require_beacon_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> None:
+    expected = os.getenv("BALIZA_TOKEN")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Beacon token is not configured")
+    if credentials is None or not secrets.compare_digest(
+        credentials.credentials, expected
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def validar_beacon_id(beacon_id: str) -> None:
+    if not beacon_id or len(beacon_id) > 32 or any(
+        caracter not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        for caracter in beacon_id
+    ):
+        raise HTTPException(status_code=422, detail="Invalid beacon id")
+
+
 def get_store() -> almacen.Almacen:
     try:
         return almacen.obtener_almacen()
@@ -291,6 +319,42 @@ def health_check() -> dict[str, str]:
     """Devuelve el estado básico de disponibilidad de la API."""
 
     return {"status": "ok", "service": "cascovision-api"}
+
+
+@app.get("/edge/beacons/{beacon_id}/health")
+def beacon_health(
+    beacon_id: str,
+    _: None = Depends(require_beacon_token),
+) -> dict[str, str]:
+    """Estado de la API y PostgreSQL para la pantalla de la baliza."""
+    validar_beacon_id(beacon_id)
+    database = "error"
+    if os.getenv("CASCOVISION_STORAGE", "json").lower() == "postgres":
+        try:
+            import psycopg
+
+            almacen.obtener_almacen().listar({}, 1, 1)
+            database = "ok"
+        except (almacen.AlmacenNoDisponible, psycopg.Error):
+            pass
+    return {"api": "ok", "database": database}
+
+
+@app.post("/edge/beacons/{beacon_id}/logs", status_code=201)
+def receive_beacon_log(
+    beacon_id: str,
+    payload: BeaconLog,
+    _: None = Depends(require_beacon_token),
+) -> dict[str, bool]:
+    """Guarda en el proyecto los logs que la baliza reenvía."""
+    validar_beacon_id(beacon_id)
+    carpeta = config.RAIZ / "Fase 2" / "Evidencias Proyecto" / "logs" / "balizas"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    ruta = carpeta / f"{beacon_id}.txt"
+    with ruta.open("a", encoding="utf-8") as archivo:
+        archivo.write(f"[{datetime.now(timezone.utc).isoformat()}]\n")
+        archivo.write(payload.message.rstrip() + "\n")
+    return {"stored": True}
 
 
 @app.get("/config")
