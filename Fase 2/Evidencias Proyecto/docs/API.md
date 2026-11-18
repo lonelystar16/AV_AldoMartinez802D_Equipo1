@@ -10,8 +10,8 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 | --- | --- |
 | `GET /health`, `POST /incidents`, `GET /incidents`, `GET /incidents/{incident_id}` | El registro de incidentes, que es historia y solo crece |
 | `GET /cameras`, `GET /cameras/{id}`, `GET /zones`, `GET /beacons` | El catálogo de recursos, que administra el dashboard |
+| `GET /edge/config`, `PUT /edge/beacons/{id}/status`, `GET /edge/beacons/{id}/health`, `POST /edge/beacons/{id}/logs` | Integración del agente Edge y la baliza |
 | `PUT /cameras/{id}`, `PUT /zones/{id}`, `PUT /beacons/{id}` | Alta y edición de esos recursos por el administrador (tarea 4.19, `tests/test_gestion_recursos.py`) |
-| `GET /edge/config`, `PUT /edge/beacons/{id}/status` | El lado del agente Edge: qué descarga al arrancar y cómo informa a la API |
 | `GET /reports` | El reporte de gestión para el prevencionista |
 | `GET /reports/export` | El mismo reporte en PDF o Excel (tarea 4.12, `tests/test_exportar.py`) |
 | `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users`, `PATCH /users/{id}` | Sesión y usuarios del dashboard (tareas 4.16 y 4.19, `tests/test_auth.py`, `tests/test_usuarios.py`) |
@@ -19,10 +19,11 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 
 ## Sesión y roles (RF-16, RF-17)
 
-Todas las rutas exigen sesión salvo `GET /health` (pública) y las del agente
-Edge (`POST /incidents`, `GET /edge/config`, `PUT /edge/beacons/{id}/status`),
-que usan su propio `EDGE_API_TOKEN`. El token del agente no abre las rutas del
-dashboard ni al revés.
+Todas las rutas exigen sesión salvo `GET /health` (pública), las rutas del
+agente Edge (`POST /incidents`, `GET /edge/config`,
+`PUT /edge/beacons/{id}/status`), que usan `EDGE_API_TOKEN`, y las rutas de la
+baliza (`GET /edge/beacons/{id}/health`, `POST /edge/beacons/{id}/logs`), que
+usan `BALIZA_TOKEN`. Esos tokens no abren las rutas del dashboard.
 
 ```http
 POST /auth/login
@@ -92,6 +93,7 @@ baliza apagada es una fila que se queda en `online = false`.
 | Variable | Uso |
 | --- | --- |
 | `EDGE_API_TOKEN` | Token compartido que el agente Edge envía como `Bearer` en `POST /incidents`, `GET /edge/config` y `PUT /edge/beacons/{id}/status`. Obligatorio |
+| `BALIZA_TOKEN` | Token compartido con la baliza para consultar el estado de API/BD y subir logs. Obligatorio |
 | `CASCOVISION_STORAGE` | `json` (por defecto) o `postgres` |
 | `CASCOVISION_INCIDENTES` | Ruta del archivo JSON. Por defecto `db/incidents.json` |
 | `CASCOVISION_RECURSOS` | Ruta del JSON de cámaras, zonas y balizas. Por defecto `db/recursos.json`. En `postgres`, se ignora |
@@ -151,6 +153,21 @@ el agente Edge, el dashboard ni la baliza.
 ```json
 {"status": "ok", "service": "cascovision-api"}
 ```
+
+### `GET /edge/beacons/{beacon_id}/health`
+
+La baliza consulta esta ruta cada 30 segundos con `Authorization: Bearer
+<BALIZA_TOKEN>`. Devuelve `api: "ok"` si la ruta responde y `database: "ok"`
+solo cuando PostgreSQL acepta una consulta. Si la base de datos falla, la API
+responde `200` con `database: "error"`, para que la pantalla pueda distinguir
+ambos estados.
+
+### `POST /edge/beacons/{beacon_id}/logs`
+
+Recibe logs de la baliza con el mismo token. La API los agrega a
+`Fase 2/Evidencias Proyecto/logs/balizas/{beacon_id}.txt`. Si la API no está
+disponible, la baliza conserva los logs en LittleFS y los reintenta cuando
+vuelve a conectarse.
 
 ### `POST /incidents`
 
