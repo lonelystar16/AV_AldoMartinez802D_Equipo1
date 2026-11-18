@@ -265,6 +265,34 @@ def test_edge_config_camara_inexistente_responde_404() -> None:
     assert respuesta.status_code == 404
 
 
+def test_edge_config_entrega_la_camara_inactiva_con_su_estado() -> None:
+    # Un 404 se confundiría con "API caída" y el agente seguiría vigilando.
+    cuerpo = peticion(
+        "GET", "/edge/config?camera_id=camara-02", headers=AUTH
+    ).json()
+
+    assert cuerpo["camera"]["active"] is False
+    assert cuerpo["camera"]["rtsp_url"] == "rtsp://192.168.50.11/stream"
+
+
+def test_edge_config_entrega_la_zona_que_pide_el_agente() -> None:
+    otra = dict(RECURSOS["zones"][0], id="zona-a", name="Zona A", active=False)
+    almacen.ARCHIVO_RECURSOS.write_text(
+        json.dumps(dict(RECURSOS, zones=[otra, *RECURSOS["zones"]])), encoding="utf-8"
+    )
+
+    def zona(consulta: str) -> dict:
+        return peticion("GET", f"/edge/config?{consulta}", headers=AUTH).json()["zone"]
+
+    assert zona("camera_id=camara-01&zone_id=zona-norte")["id"] == "zona-norte"
+    assert zona("camera_id=camara-01&zone_id=zona-a")["active"] is False
+    # Sin zone_id, o con una que ya no existe, va la primera de la cámara.
+    assert zona("camera_id=camara-01")["id"] == "zona-a"
+    assert zona("camera_id=camara-01&zone_id=zona-borrada")["id"] == "zona-a"
+    # Una zona de otra cámara no se entrega.
+    assert zona("camera_id=camara-01&zone_id=zona-sur")["id"] == "zona-a"
+
+
 def test_edge_config_camara_sin_zona_responde_404() -> None:
     almacen.ARCHIVO_RECURSOS.write_text(
         json.dumps(dict(RECURSOS, zones=[])), encoding="utf-8"

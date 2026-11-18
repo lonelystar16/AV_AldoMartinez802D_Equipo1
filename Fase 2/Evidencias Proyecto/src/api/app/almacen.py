@@ -21,8 +21,8 @@ import os
 from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Protocol
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
-from uuid import UUID
 
 
 class AlmacenNoDisponible(Exception):
@@ -31,6 +31,10 @@ class AlmacenNoDisponible(Exception):
 
 class ReferenciaIncidenteInvalida(Exception):
     """La cámara o zona del incidente no existe en los catálogos."""
+
+
+class Conflicto(Exception):
+    """El cambio choca con el estado actual (correo repetido, mismo estado)."""
 
 
 class Almacen(Protocol):
@@ -56,13 +60,58 @@ class Almacen(Protocol):
         self, beacon_id: str, estado: dict[str, Any]
     ) -> dict[str, Any] | None: ...
 
+    # Alta o edición desde el dashboard (CU-09, CU-10): crea si no existe.
+    def guardar_camara(self, datos: dict[str, Any]) -> dict[str, Any]: ...
+
+    def guardar_zona(self, datos: dict[str, Any]) -> dict[str, Any]: ...
+
+    def guardar_baliza(self, datos: dict[str, Any]) -> dict[str, Any]: ...
+
     # --- reporte ---
     def reportar(
         self, filtros: dict[str, Any], pagina: int, limite: int
     ) -> dict[str, Any]: ...
 
+    # --- revisión de incidentes (RF-14) ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None: ...
+
+    # --- usuarios (RF-16, RF-17) ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None: ...
+
+    def listar_usuarios(self) -> list[dict[str, Any]]: ...
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]: ...
+
+    # Cambia solo las claves presentes en `cambios`; None si el usuario no existe.
+    def editar_usuario(self, user_id: str, cambios: dict[str, Any]) -> dict[str, Any] | None: ...
+
+    # --- avisos por correo (RF-12) ---
+    def destinatarios_avisos(self) -> list[dict[str, Any]]: ...
+
+    # Devuelve None si ese aviso ya existía (el agente reintentó el envío).
+    def registrar_aviso(
+        self, incident_id: str, user_id: str, canal: str, destino: str
+    ) -> int | None: ...
+
+    def cerrar_aviso(self, aviso_id: int, error: str | None, intentos: int) -> None: ...
+
 
 # ==================== JSON ====================
+
+# Sin base de datos no hay tabla de usuarios: el modo JSON (desarrollo y
+# pruebas) acepta un único administrador definido en el entorno.
+ADMIN_LOCAL_ID = "00000000-0000-4000-8000-000000000001"
+SOLO_POSTGRES_RECURSOS = "Resource management requires PostgreSQL storage"
+
+
+def _admin_local() -> dict[str, Any] | None:
+    email = os.getenv("CASCOVISION_ADMIN_EMAIL", "").strip().lower()
+    if not email or not os.getenv("CASCOVISION_ADMIN_PASSWORD"):
+        return None
+    return {"id": ADMIN_LOCAL_ID, "email": email, "full_name": "Administrador local",
+            "phone": None, "role": "admin", "active": True, "last_login_at": None}
 
 ARCHIVO = Path(
     os.environ.get(
@@ -223,6 +272,16 @@ class AlmacenJSON:
         self._guardar_recursos(datos)
         return actualizada
 
+    # Como los usuarios: las claves foráneas y únicas las garantiza la base.
+    def guardar_camara(self, datos: dict[str, Any]) -> dict[str, Any]:
+        raise AlmacenNoDisponible(SOLO_POSTGRES_RECURSOS)
+
+    def guardar_zona(self, datos: dict[str, Any]) -> dict[str, Any]:
+        raise AlmacenNoDisponible(SOLO_POSTGRES_RECURSOS)
+
+    def guardar_baliza(self, datos: dict[str, Any]) -> dict[str, Any]:
+        raise AlmacenNoDisponible(SOLO_POSTGRES_RECURSOS)
+
     # --- reporte ---
     def reportar(
         self, filtros: dict[str, Any], pagina: int, limite: int
@@ -292,6 +351,55 @@ class AlmacenJSON:
             "resumen": resumen,
             "incidentes": seleccion[inicio : inicio + limite],
         }
+
+    # --- revisión de incidentes ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None:
+        """Cambia el estado de revisión. En JSON el comentario no se guarda:
+        el historial de revisiones (incident_events) solo existe en PostgreSQL."""
+        datos = self._cargar()
+        indice = next((i for i, d in enumerate(datos) if d.get("id") == incident_id), None)
+        if indice is None:
+            return None
+        if datos[indice].get("status") == estado:
+            raise Conflicto("Incident already has that status")
+        datos[indice] = {**datos[indice], "status": estado}
+        self._guardar(datos)
+        return datos[indice]
+
+    # --- usuarios ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None:
+        import hmac
+
+        admin = _admin_local()
+        if admin is None:
+            return None
+        correo_ok = hmac.compare_digest(email.strip().lower(), admin["email"])
+        clave_ok = hmac.compare_digest(
+            password.encode(), os.environ["CASCOVISION_ADMIN_PASSWORD"].encode()
+        )
+        return admin if correo_ok and clave_ok else None
+
+    def listar_usuarios(self) -> list[dict[str, Any]]:
+        admin = _admin_local()
+        return [admin] if admin else []
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
+        raise AlmacenNoDisponible("User management requires PostgreSQL storage")
+
+    def editar_usuario(self, user_id: str, cambios: dict[str, Any]) -> dict[str, Any] | None:
+        raise AlmacenNoDisponible("User management requires PostgreSQL storage")
+
+    # Sin base no hay prevencionistas registrados: no se avisa a nadie.
+    def destinatarios_avisos(self) -> list[dict[str, Any]]:
+        return []
+
+    def registrar_aviso(self, incident_id, user_id, canal, destino) -> int | None:
+        return None
+
+    def cerrar_aviso(self, aviso_id, error, intentos) -> None:
+        return None
 
 
 # ==================== Reporte ====================
@@ -427,10 +535,10 @@ FILTROS_PERMITIDOS = ("zone_id", "camera_id", "violation_type", "status")
 
 COLUMNAS_CAMARA = "id, name, rtsp_url, location, active, last_frame_at, created_at"
 COLUMNAS_ZONA = "id, camera_id, name, polygon, suppression_s, active"
-# `ip` es INET; se castea a texto para que la respuesta sea la misma que da el
+# `ip` es INET; host() la deja como texto sin la máscara (/32), igual que el
 # almacenamiento JSON, que guarda la dirección como cadena.
 COLUMNAS_BALIZA = (
-    "id, zone_id, name, ip::text, duration_s, sound, message, "
+    "id, zone_id, name, host(ip), duration_s, sound, message, "
     "online, battery_pct, last_seen_at"
 )
 
@@ -487,6 +595,23 @@ def _desde_fila(fila: tuple) -> dict[str, Any]:
         "started_at": started_at.astimezone(timezone.utc) if started_at else None,
         "last_ping_at": last_ping_at.astimezone(timezone.utc) if last_ping_at else None,
         "ended_at": ended_at.astimezone(timezone.utc) if ended_at else None,
+    }
+
+
+COLUMNAS_USUARIO = "id, email, full_name, phone, role, active, last_login_at"
+# Restricciones únicas de 004_modelo_completo.sql que el dashboard puede chocar.
+CONFLICTOS = {
+    "beacons_ip_key": "Beacon IP is already in use",
+    "beacons_zone_id_key": "Zone already has a beacon",
+}
+
+
+def _usuario_desde_fila(fila: tuple) -> dict[str, Any]:
+    (user_id, email, full_name, phone, role, active, last_login_at) = fila
+    return {
+        "id": str(user_id), "email": email, "full_name": full_name, "phone": phone,
+        "role": role, "active": active,
+        "last_login_at": last_login_at.astimezone(timezone.utc) if last_login_at else None,
     }
 
 
@@ -558,10 +683,20 @@ class AlmacenPostgres:
                 return cursor.fetchall() if cursor.description else []
         except psycopg.errors.UndefinedTable as exc:
             raise AlmacenNoDisponible("Database schema is not initialized") from exc
-        except psycopg.errors.UndefinedColumn as exc:
+        except (psycopg.errors.UndefinedColumn, psycopg.errors.UndefinedFunction) as exc:
+            # UndefinedFunction: falta pgcrypto (migración 008).
             raise AlmacenNoDisponible("Database schema is outdated") from exc
+        except psycopg.errors.UniqueViolation as exc:
+            raise Conflicto(
+                CONFLICTOS.get(exc.diag.constraint_name, "Already exists")
+            ) from exc
         except psycopg.errors.ForeignKeyViolation as exc:
             raise ReferenciaIncidenteInvalida("Camera or zone is not configured") from exc
+        except psycopg.errors.CheckViolation as exc:
+            # La API valida antes; esto cubre una regla de la base que no conoce.
+            raise ReferenciaIncidenteInvalida("Value rejected by the database") from exc
+        except psycopg.errors.InsufficientPrivilege as exc:
+            raise AlmacenNoDisponible("Database role lacks permission (apply db/roles.sql)") from exc
 
         except psycopg.OperationalError as exc:
             raise AlmacenNoDisponible("PostgreSQL is unavailable") from exc
@@ -595,7 +730,8 @@ class AlmacenPostgres:
                 registro["beacon_alert"]["latency_ms"],
                 registro["person_track_id"], registro["status"],
                 registro["created_at"], registro["event"],
-                registro.get("episode_id"), registro.get("ping_count", 0),
+                # El agente puede mandar ping_count nulo; la columna es NOT NULL.
+                registro.get("episode_id"), registro.get("ping_count") or 0,
                 registro.get("started_at"), registro.get("last_ping_at"),
                 registro.get("ended_at"),
             ),
@@ -682,6 +818,44 @@ class AlmacenPostgres:
             ),
         )
         return _baliza_desde_fila(filas[0]) if filas else None
+
+    # No hay DELETE: los incidentes apuntan a cámaras y zonas, y borrarlas
+    # rompería el historial. Se desactivan con `active = false`.
+    def guardar_camara(self, datos: dict[str, Any]) -> dict[str, Any]:
+        filas = self._ejecutar(
+            "INSERT INTO cameras (id, name, rtsp_url, location, active) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET "
+            "name = EXCLUDED.name, rtsp_url = EXCLUDED.rtsp_url, "
+            "location = EXCLUDED.location, active = EXCLUDED.active "
+            f"RETURNING {COLUMNAS_CAMARA}",
+            (datos["id"], datos["name"], datos["rtsp_url"], datos.get("location"),
+             datos["active"]),
+        )
+        return _camara_desde_fila(filas[0])
+
+    def guardar_zona(self, datos: dict[str, Any]) -> dict[str, Any]:
+        filas = self._ejecutar(
+            "INSERT INTO zones (id, camera_id, name, polygon, suppression_s, active) "
+            "VALUES (%s, %s, %s, %s::jsonb, %s, %s) ON CONFLICT (id) DO UPDATE SET "
+            "camera_id = EXCLUDED.camera_id, name = EXCLUDED.name, "
+            "polygon = EXCLUDED.polygon, suppression_s = EXCLUDED.suppression_s, "
+            f"active = EXCLUDED.active RETURNING {COLUMNAS_ZONA}",
+            (datos["id"], datos["camera_id"], datos["name"], json.dumps(datos["polygon"]),
+             datos["suppression_s"], datos["active"]),
+        )
+        return _zona_desde_fila(filas[0])
+
+    def guardar_baliza(self, datos: dict[str, Any]) -> dict[str, Any]:
+        filas = self._ejecutar(
+            "INSERT INTO beacons (id, zone_id, name, ip, duration_s, sound, message) "
+            "VALUES (%s, %s, %s, %s::inet, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET "
+            "zone_id = EXCLUDED.zone_id, name = EXCLUDED.name, ip = EXCLUDED.ip, "
+            "duration_s = EXCLUDED.duration_s, sound = EXCLUDED.sound, "
+            f"message = EXCLUDED.message RETURNING {COLUMNAS_BALIZA}",
+            (datos["id"], datos.get("zone_id"), datos["name"], datos["ip"],
+             datos["duration_s"], datos["sound"], datos.get("message")),
+        )
+        return _baliza_desde_fila(filas[0])
 
     # --- reporte ---
     def reportar(
@@ -785,6 +959,102 @@ class AlmacenPostgres:
             },
             "incidentes": [_desde_fila(fila) for fila in pagina_filas],
         }
+
+    # --- revisión de incidentes ---
+    def cambiar_estado(
+        self, incident_id: str, estado: str, comentario: str | None, user_id: str
+    ) -> dict[str, Any] | None:
+        """Cambia el estado y deja el evento en incident_events (auditoría).
+
+        Una sola sentencia: el UPDATE y el INSERT del evento quedan en la
+        misma transacción, y el FOR UPDATE evita que dos revisores pisen el
+        cambio del otro.
+        """
+        try:
+            UUID(incident_id)
+        except ValueError:
+            return None
+        filas = self._ejecutar(
+            "WITH previo AS ("
+            "  SELECT id, status FROM incidents WHERE id = %s FOR UPDATE"
+            "), cambio AS ("
+            "  UPDATE incidents i SET status = %s, updated_at = now() FROM previo"
+            "  WHERE i.id = previo.id AND previo.status <> %s"
+            "  RETURNING i.id, previo.status AS desde"
+            "), evento AS ("
+            "  INSERT INTO incident_events (incident_id, user_id, from_status, to_status, comment)"
+            "  SELECT id, %s, desde, %s, %s FROM cambio"
+            ") SELECT (SELECT status FROM previo), (SELECT count(*) FROM cambio)",
+            (incident_id, estado, estado, user_id, estado, comentario),
+        )
+        previo, cambiados = filas[0]
+        if previo is None:
+            return None
+        if not cambiados:
+            raise Conflicto("Incident already has that status")
+        return self.obtener(incident_id)
+
+    # --- usuarios ---
+    def verificar_credenciales(self, email: str, password: str) -> dict[str, Any] | None:
+        """La función de la migración 008 compara con crypt(): la API no lee el hash."""
+        filas = self._ejecutar(
+            f"SELECT {COLUMNAS_USUARIO} FROM autenticar_usuario(%s, %s)",
+            (email.strip(), password),
+        )
+        return _usuario_desde_fila(filas[0]) if filas else None
+
+    def listar_usuarios(self) -> list[dict[str, Any]]:
+        filas = self._ejecutar(f"SELECT {COLUMNAS_USUARIO} FROM users ORDER BY email", ())
+        return [_usuario_desde_fila(fila) for fila in filas]
+
+    def crear_usuario(self, datos: dict[str, Any]) -> dict[str, Any]:
+        filas = self._ejecutar(
+            "INSERT INTO users (id, email, full_name, phone, password_hash, role, active) "
+            "VALUES (%s, lower(%s), %s, %s, public.crypt(%s, public.gen_salt('bf', 12)), %s, TRUE) "
+            f"RETURNING {COLUMNAS_USUARIO}",
+            (str(uuid4()), datos["email"], datos["full_name"], datos.get("phone"),
+             datos["password"], datos["role"]),
+        )
+        return _usuario_desde_fila(filas[0])
+
+    def editar_usuario(self, user_id: str, cambios: dict[str, Any]) -> dict[str, Any] | None:
+        columnas = [c for c in ("full_name", "phone", "role", "active") if c in cambios]
+        if not columnas:
+            filas = self._ejecutar(f"SELECT {COLUMNAS_USUARIO} FROM users WHERE id = %s", (user_id,))
+        else:
+            asignaciones = ", ".join(f"{c} = %s" for c in columnas)  # nombres de la lista fija
+            filas = self._ejecutar(
+                f"UPDATE users SET {asignaciones} WHERE id = %s RETURNING {COLUMNAS_USUARIO}",
+                (*(cambios[c] for c in columnas), user_id),
+            )
+        return _usuario_desde_fila(filas[0]) if filas else None
+
+    # --- avisos ---
+    def destinatarios_avisos(self) -> list[dict[str, Any]]:
+        """Prevencionistas activos: son quienes reciben el aviso (RF-12)."""
+        filas = self._ejecutar(
+            f"SELECT {COLUMNAS_USUARIO} FROM users "
+            "WHERE role = 'prevencionista' AND active ORDER BY email", ())
+        return [_usuario_desde_fila(fila) for fila in filas]
+
+    def registrar_aviso(
+        self, incident_id: str, user_id: str, canal: str, destino: str
+    ) -> int | None:
+        # El índice único de la migración 006 evita avisar dos veces lo mismo.
+        filas = self._ejecutar(
+            "INSERT INTO notifications (incident_id, user_id, channel, destination) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (incident_id, user_id, channel) DO NOTHING RETURNING id",
+            (incident_id, user_id, canal, destino),
+        )
+        return filas[0][0] if filas else None
+
+    def cerrar_aviso(self, aviso_id: int, error: str | None, intentos: int) -> None:
+        self._ejecutar(
+            "UPDATE notifications SET status = %s, attempts = %s, error = %s, "
+            "sent_at = CASE WHEN %s::text IS NULL THEN now() END WHERE id = %s",
+            ("failed" if error else "sent", intentos, error, error, aviso_id),
+        )
 
 
 def obtener_almacen() -> Almacen:

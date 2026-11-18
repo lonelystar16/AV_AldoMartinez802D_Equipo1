@@ -15,6 +15,28 @@ jobs:
     name: Ejecutar pruebas con pytest
     runs-on: ubuntu-latest
 
+    # Base desechable para las pruebas de PostgreSQL (cada caso crea y borra su esquema).
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: cvtest
+          POSTGRES_PASSWORD: cvtest
+          POSTGRES_DB: cvtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cvtest -d cvtest"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      CASCOVISION_TEST_POSTGRES: "1"
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: cvtest
+      POSTGRES_PASSWORD: cvtest
+      POSTGRES_DB: cvtest
+
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
@@ -36,3 +58,22 @@ jobs:
 
       - name: Ejecutar pruebas
         run: uv run --locked --no-sync pytest -v
+
+  dashboard:
+    name: Compilar el dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Fase 2/Evidencias Proyecto/src/dashboard
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar y compilar
+        run: npm ci --no-audit --no-fund && npm run build

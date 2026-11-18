@@ -110,7 +110,8 @@ def test_pregunta_una_vez_con_el_token_del_agente(api) -> None:
     assert len(api["llamadas"]) == 1
     llamada = api["llamadas"][0]
     assert llamada["metodo"] == "GET"
-    assert llamada["ruta"] == "/edge/config?camera_id=camara-01"
+    # Pide su zona, para recibir el estado activo de esa y no de otra.
+    assert llamada["ruta"] == "/edge/config?camera_id=camara-01&zone_id=zona-norte"
     assert llamada["token"] == "Bearer token-secreto"
 
 

@@ -11,7 +11,64 @@ implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 | `GET /health`, `POST /incidents`, `GET /incidents`, `GET /incidents/{incident_id}` | El registro de incidentes, que es historia y solo crece |
 | `GET /cameras`, `GET /cameras/{id}`, `GET /zones`, `GET /beacons` | El catálogo de recursos, que administra el dashboard |
 | `GET /edge/config`, `PUT /edge/beacons/{id}/status`, `GET /edge/beacons/{id}/health`, `POST /edge/beacons/{id}/logs` | Integración del agente Edge y la baliza |
+| `PUT /cameras/{id}`, `PUT /zones/{id}`, `PUT /beacons/{id}` | Alta y edición de esos recursos por el administrador (tarea 4.19, `tests/test_gestion_recursos.py`) |
 | `GET /reports` | El reporte de gestión para el prevencionista |
+| `GET /reports/export` | El mismo reporte en PDF o Excel (tarea 4.12, `tests/test_exportar.py`) |
+| `POST /auth/login`, `GET /auth/me`, `GET /users`, `POST /users`, `PATCH /users/{id}` | Sesión y usuarios del dashboard (tareas 4.16 y 4.19, `tests/test_auth.py`, `tests/test_usuarios.py`) |
+| `PATCH /incidents/{id}`, `GET /incidents/{id}/evidence` | Revisión del incidente (RF-14) y su imagen difuminada (RF-19) |
+
+## Sesión y roles (RF-16, RF-17)
+
+Todas las rutas exigen sesión salvo `GET /health` (pública), las rutas del
+agente Edge (`POST /incidents`, `GET /edge/config`,
+`PUT /edge/beacons/{id}/status`), que usan `EDGE_API_TOKEN`, y las rutas de la
+baliza (`GET /edge/beacons/{id}/health`, `POST /edge/beacons/{id}/logs`), que
+usan `BALIZA_TOKEN`. Esos tokens no abren las rutas del dashboard.
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{"email": "admin@cascovision.local", "password": "..."}
+```
+
+Responde `{"access_token": "...", "token_type": "bearer", "expires_at": "...", "user": {...}}`.
+El token es un JWT HS256 firmado con `JWT_SECRET` (32+ caracteres; sin él el
+login responde `503`) y dura 8 horas, un turno. Se envía como
+`Authorization: Bearer <token>`. Correo o clave malos responden `401` con el
+mismo mensaje. El tiempo de respuesta sí puede delatar un correo existente,
+porque bcrypt solo corre cuando el correo coincide (ver *Pendiente*).
+
+Con PostgreSQL la clave se compara en la base con `crypt()` de pgcrypto
+(migración `008_autenticacion.sql`) contra el hash bcrypt de `users`. Con JSON
+no hay tabla de usuarios: solo entra el administrador de
+`CASCOVISION_ADMIN_EMAIL` / `CASCOVISION_ADMIN_PASSWORD`, pensado para
+desarrollo.
+
+| Rol | Consulta incidentes, recursos, reporte y evidencia | Revisa incidentes (`PATCH`) | Usuarios y `/config` |
+| --- | --- | --- | --- |
+| `supervisor` | Sí | No (`403`) | No (`403`) |
+| `prevencionista` | Sí | Sí | No (`403`) |
+| `admin` | Sí | Sí | Sí |
+
+`POST /users` (solo admin y solo con PostgreSQL) recibe `email`, `full_name`,
+`role`, `password` (12+ caracteres) y `phone` opcional en formato E.164; un
+correo repetido responde `409`.
+
+`PATCH /users/{id}` (solo admin y solo con PostgreSQL) cambia `full_name`,
+`phone` (`null` lo borra), `role` y `active`; solo los campos enviados. El
+correo y la contraseña no se editan. Un usuario desactivado no puede iniciar
+sesión ni recibe avisos por correo. El administrador no puede desactivarse ni
+quitarse el rol a sí mismo (`409`), así que siempre queda uno activo. Un id
+desconocido responde `404`.
+
+`PATCH /incidents/{id}` recibe `{"status": "reviewed" | "closed" | "false_positive" | "open", "comment": "..."}`.
+Cerrar o marcar como falso positivo exige comentario (`422` sin él, misma
+regla que la migración 006); repetir el estado actual responde `409`. Con
+PostgreSQL cada cambio queda en `incident_events` con quién lo hizo.
+
+`GET /incidents/{id}/evidence` devuelve el JPEG que guardó el agente, ya con
+los rostros difuminados. Solo entrega archivos dentro de `incidents/`.
 
 Esta versión integra dos implementaciones que se hicieron en paralelo: el
 registro con token y PostgreSQL de la rama `development_02.10.2026`, y las
@@ -42,6 +99,7 @@ baliza apagada es una fila que se queda en `online = false`.
 | `CASCOVISION_RECURSOS` | Ruta del JSON de cámaras, zonas y balizas. Por defecto `db/recursos.json`. En `postgres`, se ignora |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Conexión a PostgreSQL, obligatorias con `postgres` |
 | `POSTGRES_HOST`, `POSTGRES_PORT` | Por defecto `localhost` y `5432` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Aviso por correo de cada incidente nuevo (RF-12). Sin `SMTP_HOST` no se envía nada. Puerto 587 con STARTTLS o 465 con TLS; con usuario, nunca entrega la clave sin TLS |
 
 `.env.example` contiene solo valores de ejemplo. Las variables deben estar en el
 entorno del proceso; la API no lee el archivo `.env` por sí misma.
@@ -200,6 +258,17 @@ ping y en el cierre. Por eso:
 - dos personas sin EPP abren dos registros distintos, y la segunda se avisa de
   inmediato aunque la primera esté a mitad de su ventana de ping.
 
+**Aviso por correo (RF-12, CU-05, tarea 4.20).** Cada registro nuevo (un
+`inicio`, o un `ping`/`fin` cuyo episodio no existía) envía, después de
+responder al agente, un correo a cada usuario **prevencionista activo** con la
+zona, la cámara, el EPP faltante, la hora de Santiago y cómo terminó la alerta
+de la baliza (si falló o estaba fuera de línea, lo destaca: CU-04 1a y 2a). Si
+`face_blurred` es `true` adjunta la evidencia; si no, solo texto (RNF-08). Cada
+envío queda en `notifications` como `sent` o `failed`, con hasta 2 intentos de
+8 s y el motivo del fallo; el índice único evita avisar dos veces el mismo
+incidente. Un fallo del correo nunca cambia la respuesta al agente. Solo con
+PostgreSQL. El SMS (RF-11) quedó fuera por decisión del equipo (05-11-2026).
+
 ### `GET /incidents`
 
 Historial ordenado por `detected_at` descendente.
@@ -221,9 +290,8 @@ Detalle de un incidente. `200 OK`, o `404 Not Found` si no existe.
 
 ### Recursos: `GET /cameras`, `GET /zones`, `GET /beacons`
 
-Catálogo de lectura para el dashboard. Crear y editar recursos **no es trabajo
-de esta API**: el administrador lo carga con `db/seed.sql` o directamente en la
-base.
+Catálogo de lectura para el dashboard, con cualquier rol. El administrador los
+crea y edita con `PUT` (ver más abajo).
 
 | Ruta | Qué devuelve |
 | --- | --- |
@@ -236,19 +304,64 @@ base.
 `online` en `false` no es un error: es el estado real de una baliza que aún no
 tiene firmware (tarea 4.7) o que está apagada.
 
+### Alta y edición: `PUT /cameras/{id}`, `PUT /zones/{id}`, `PUT /beacons/{id}`
+
+Solo el administrador (`403` para los demás roles). `PUT` crea el recurso si el
+`id` no existe y lo reemplaza si existe, y responde `200` con el recurso
+guardado. Requiere PostgreSQL: con almacenamiento JSON responde `503`.
+
+```http
+PUT /zones/zona-patio
+Authorization: Bearer <token de admin>
+Content-Type: application/json
+
+{"camera_id": "camara-01", "name": "Patio", "polygon": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9]],
+ "suppression_s": 60, "active": true}
+```
+
+| Recurso | Campos | Reglas (`422` si no se cumplen) |
+| --- | --- | --- |
+| Cámara | `name`, `rtsp_url`, `location`, `active` | URL `rtsp://` o `rtsps://` **sin usuario ni clave** (las credenciales van en `CAMARA_FUENTE` del agente) |
+| Zona | `camera_id`, `name`, `polygon`, `suppression_s`, `active` | 3 a 50 puntos con `x` e `y` entre 0 y 1 (relativos al cuadro, como los usa el agente); supresión de 10 a 600 s; la cámara debe existir |
+| Baliza | `name`, `ip`, `zone_id`, `duration_s`, `sound`, `message` | IP válida; duración de 1 a 30 s; `sound` es `siren`, `voice` o `beep`; mensaje de hasta 40 caracteres; la zona debe existir |
+
+El `id` va en la ruta: minúsculas, dígitos y guiones, hasta 40 caracteres. Una
+IP o una zona que ya usa otra baliza responden `409` (`Beacon IP is already in
+use`, `Zone already has a beacon`). No hay `DELETE`: los incidentes apuntan a
+cámaras y zonas, así que se desactivan con `active: false`.
+
+El agente Edge vuelve a pedir `GET /edge/config` en cada latido (30 s), también
+con la cámara caída o en pausa, y aplica sin reiniciarse:
+
+- **Polígono y nombre** de la zona que ya vigila.
+- **`rtsp_url`** de la cámara: la reabre con la URL nueva. Manda sobre `fuente`
+  del JSON local, pero no sobre `--fuente` ni `CAMARA_FUENTE`, que son la cámara
+  fija del sitio (y las únicas que pueden traer usuario y clave).
+- **`active`** de la cámara o de su zona: en `false` cierra con `fin` los
+  incidentes abiertos, suelta la cámara y no analiza; al volver a `true`, reanuda.
+
+Si la API no responde, sigue con lo último que supo. Una zona nueva de la misma
+cámara y la URL de la baliza se toman al reiniciar el agente.
+
+En una base con los roles de `db/roles.sql`, el rol de la API necesita los
+permisos de escritura de la 4.19: vuelva a ejecutar `roles.sql` después de
+actualizar.
+
 ### `GET /edge/config`
 
 ```http
-GET /edge/config?camera_id=camara-01
+GET /edge/config?camera_id=camara-01&zone_id=zona-norte
 Authorization: Bearer <EDGE_API_TOKEN>
 ```
 
 Ruta del lado del agente Edge (I-04). Devuelve la relación **cámara → zona →
 baliza** que el agente necesita para trabajar sin repetir lo que el dashboard ya
 sabe. Exige el token del agente porque revela direcciones de red: un navegador
-que solo pone `GET /edge/config` se queda en `401`, y las rutas `GET` de
-incidentes y recursos siguen siendo las únicas abiertas hasta que exista JWT
-(ver *Pendiente*).
+que solo pone `GET /edge/config` se queda en `401`, aunque tenga sesión del
+dashboard. `zone_id` es la zona que vigila el agente; sin él, o si ya no existe,
+va la primera de la cámara. Cámara y zona se entregan aunque estén
+desactivadas, con su `active`, para que el agente distinga una pausa de una API
+caída.
 
 ```json
 {
@@ -385,6 +498,27 @@ y `por_turno` respeta los horarios de `shifts`, incluido el turno que cruza
 medianoche. Cada grupo informa `total_incidentes` y `alertas_activas` (estado
 de revision `open`).
 
+### `GET /reports/export`
+
+```http
+GET /reports/export?formato=pdf&desde=2026-10-01T00:00:00-03:00&zone_id=zona-norte
+Authorization: Bearer <token>
+```
+
+Descarga el reporte como archivo, con cualquier rol (CU-08). `formato` es `pdf`
+o `xlsx`, y acepta los mismos filtros que `GET /reports` (`desde`, `hasta`,
+`camera_id`, `zone_id`, `violation_type`, `status`, `beacon_status`) con las
+mismas validaciones. No pagina: trae toda la selección hasta 5.000 incidentes, y
+si hay más el archivo lo advierte.
+
+El archivo dice qué filtros se aplicaron e incluye los totales, las agrupaciones
+por zona, turno y hora, y una fila por incidente: inicio, fin, duración, cámara,
+zona, infracciones, confianza, resultado de la baliza y estado de la revisión.
+Las horas van en hora de Santiago. El Excel trae dos hojas (*Resumen* e
+*Incidentes*, con filtros de columna), y un nombre que empiece con `=` queda
+como texto, no como fórmula. El PDF usa las fuentes base, que solo tienen
+Latin-1: un emoji en un nombre se ve como `?`.
+
 ## Reglas comunes
 
 - Las fechas de las respuestas se expresan en UTC con sufijo `Z`.
@@ -393,20 +527,16 @@ de revision `open`).
 
 ## Pendiente
 
-- **Autenticación de usuarios (RF-17, JWT) y permisos por rol (RNF-07).** Las
-  rutas `GET` de incidentes y recursos quedan abiertas hasta implementarla
-  junto con el dashboard; hoy solo `POST /incidents` y las dos rutas `edge/*`
-  exigen token. Es una de las decisiones abiertas del SRS v0.3 (§4.6).
-- **Acceso a la evidencia.** `evidence_path` es solo una referencia; la API
-  todavía no sirve el archivo.
+- **Sesiones.** Desactivar un usuario no corta un token ya emitido: sigue
+  válido hasta que vence (8 h). Tampoco hay límite de intentos de login, y el
+  tiempo de respuesta del login distingue un correo existente de uno que no.
+- **Contraseñas:** el administrador no puede cambiar ni restablecer la clave de
+  otro usuario; hoy se hace en la base.
 - **Baliza sin firmware (tarea 4.7).** Hasta que exista, toda baliza se queda
   en `online = false`, `battery_pct = null` y los incidentes terminan en
   `beacon_alert.status = "skipped_offline"`, que es exactamente lo que ocurre.
   El agente ya **está** listo para cambiarlo: envía `PUT /edge/beacons/{id}/status`
   cada 30 segundos y el reporte ya sabe leerlo.
-- **Cambio de estado de un incidente** (revisado, cerrado, falso positivo)
-  desde el dashboard (CU-07). Sin ese endpoint, `por_estado` del reporte solo
-  refleja los que llegan con `status` distinto de `open`.
 
 Cerrado en esta entrega: la tarea **4.15** — `GET /edge/config`,
 `PUT /edge/beacons/{id}/status` y `GET /reports`, con el reporte en los dos

@@ -108,8 +108,13 @@ class Handler(BaseHTTPRequestHandler):
         if size < 0:
             return self._reply(400, {"error": "invalid_field", "field": "body"})
         if size > MAX_BODY:
+            # Se descarta lo enviado (con tope) antes de responder: cerrar con datos sin
+            # leer hace que el sistema corte la conexión y el cliente no reciba el 413.
+            self.rfile.read(min(size, 64 * 1024))
             self.close_connection = True
             return self._reply(413)
+        # El cuerpo se lee antes de validar el token por la misma razón.
+        cuerpo = self.rfile.read(size)
 
         r = self.server.receptor
         authorization = self.headers.get("Authorization", "")
@@ -120,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get_content_type() != "application/json":
             return self._reply(400, {"error": "invalid_field", "field": "body"})
         try:
-            order = json.loads(self.rfile.read(size))
+            order = json.loads(cuerpo)
         except (json.JSONDecodeError, UnicodeDecodeError):
             return self._reply(400, {"error": "invalid_field", "field": "body"})
         if not isinstance(order, dict):
