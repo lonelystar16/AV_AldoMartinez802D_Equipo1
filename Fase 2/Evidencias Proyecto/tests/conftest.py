@@ -18,6 +18,12 @@ USUARIO_PRUEBA = {"id": "d2000000-0000-4000-8000-000000000101",
 
 
 @pytest.fixture(autouse=True)
+def sin_avisos_reales(monkeypatch):
+    """El .env del equipo puede traer un SMTP: ninguna prueba envía correos de verdad."""
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def sesion_iniciada(request):
     """Las pruebas de cada ruta entran como admin sin pasar por el login.
 

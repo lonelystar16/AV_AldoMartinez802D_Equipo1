@@ -370,6 +370,31 @@ def test_roles_sql_concede_permisos_minimos(postgres_db):
                 "SELECT has_column_privilege(%s, 'beacons', %s, 'UPDATE')",
                 (names["cascovision"], column),
             ).fetchone()[0]
+        # Alta y edición desde el dashboard (4.19), sin borrar ni tocar el latido.
+        for table, column in (("cameras", "rtsp_url"), ("zones", "polygon"), ("beacons", "ip")):
+            for privilege in ("INSERT", "UPDATE"):
+                assert db.execute(
+                    "SELECT has_column_privilege(%s, %s, %s, %s)",
+                    (names["cascovision"], table, column, privilege),
+                ).fetchone()[0]
+            assert db.execute(
+                "SELECT has_table_privilege(%s, %s, 'DELETE')", (names["cascovision"], table)
+            ).fetchone()[0] is False
+        assert db.execute(
+            "SELECT has_column_privilege(%s, 'cameras', 'created_at', 'UPDATE')", (names["cascovision"],)
+        ).fetchone()[0] is False
+        # Avisos por correo (4.20): registra el envío y su resultado, sin cambiar el destino.
+        for column, privilege in (("destination", "INSERT"), ("status", "UPDATE"), ("error", "UPDATE")):
+            assert db.execute(
+                "SELECT has_column_privilege(%s, 'notifications', %s, %s)",
+                (names["cascovision"], column, privilege),
+            ).fetchone()[0]
+        assert db.execute(
+            "SELECT has_column_privilege(%s, 'notifications', 'destination', 'UPDATE')", (names["cascovision"],)
+        ).fetchone()[0] is False
+        assert db.execute(
+            "SELECT has_table_privilege(%s, 'notifications', 'DELETE')", (names["cascovision"],)
+        ).fetchone()[0] is False
         assert db.execute(
             "SELECT has_table_privilege(%s, 'users', 'SELECT')", (names["cascovision"],)
         ).fetchone()[0] is False

@@ -5,11 +5,13 @@ import Login from "./Login.jsx";
 import Monitoreo from "./Monitoreo.jsx";
 import Historial from "./Historial.jsx";
 import Usuarios from "./Usuarios.jsx";
+import Configuracion from "./Configuracion.jsx";
 import Detalle from "./Detalle.jsx";
 
 const VISTAS = [
   { id: "monitoreo", nombre: "Monitoreo" },
   { id: "historial", nombre: "Historial" },
+  { id: "configuracion", nombre: "Configuración", rol: "admin" },
   { id: "usuarios", nombre: "Usuarios", rol: "admin" },
 ];
 
@@ -69,6 +71,7 @@ export default function App() {
       <main>
         {vista === "monitoreo" && <Monitoreo abrir={setAbierto} version={version} />}
         {vista === "historial" && <Historial abrir={setAbierto} version={version} />}
+        {vista === "configuracion" && <Configuracion />}
         {vista === "usuarios" && <Usuarios />}
       </main>
       {abierto && (

@@ -13,7 +13,7 @@ uv run python "Fase 2/Evidencias Proyecto/src/edge/agente.py" --fuente 0
 | Opción | Uso |
 | --- | --- |
 | `--config` | JSON con la cámara, la zona, el polígono, la baliza y la API (ver `config.example.json`) |
-| `--fuente` | `rtsp://…`, un archivo de video o el índice de la webcam. También vale la variable `CAMARA_FUENTE`, para no dejar las credenciales de la cámara en un archivo |
+| `--fuente` | `rtsp://…`, un archivo de video o el índice de la webcam. También vale la variable `CAMARA_FUENTE`, para no dejar las credenciales de la cámara en un archivo. Sin ninguna de las dos manda la `rtsp_url` que edita el dashboard, y si la API no responde, `fuente` del JSON |
 | `--fps` | Cuadros analizados por segundo (1 por defecto) |
 | `--modelo` | `.pt` u `.onnx` (por defecto, `models/cascovision_yolo26s.pt`) |
 | `--ping` | Segundos entre reavisos de quien sigue sin EPP (60 por defecto) |
@@ -40,4 +40,4 @@ Salidas en `edge-datos/` (fuera de Git): la cola `cola_incidentes.jsonl` y `ulti
   - Se cortó la cámara 6 s: el agente lo detectó a los 5 s y se reconectó.
   - Al volver la cámara, siguió el mismo incidente, que terminó con 5 pings.
 
-Pendiente: leer la configuración desde `GET /edge/config` e informar el estado de la baliza con `PUT /edge/beacons/{id}/status`, cuando la API los tenga (tarea 4.15), y armar su imagen Docker (tarea 4.17).
+Configuración desde el dashboard (4.15 y 4.19): cada 30 s el agente pide `GET /edge/config` y aplica sin reiniciarse el polígono de su zona, la URL de la cámara y si la cámara o la zona están activas. Desactivada, cierra los incidentes abiertos y deja de analizar hasta que se reactive. El detalle está en `docs/API.md`.

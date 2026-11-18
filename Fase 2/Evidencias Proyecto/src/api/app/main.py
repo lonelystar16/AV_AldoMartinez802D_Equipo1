@@ -4,15 +4,18 @@ import os
 import secrets
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+from fastapi import Path as RutaParam
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator,
+)
 
-from . import almacen, auth, config
+from . import almacen, auth, config, exportar, notificar
 from .auth import requiere_rol, usuario_actual
 
 # Carga el .env del proyecto si existe. Las variables ya presentes en el
@@ -36,6 +39,10 @@ class BeaconAlert(BaseModel):
 
     status: Literal["alerted", "failed", "skipped_offline"]
     latency_ms: int | None = Field(ge=0)
+
+
+class BeaconLog(BaseModel):
+    message: str = Field(min_length=1, max_length=4096)
 
 
 class IncidentCreate(BaseModel):
@@ -187,6 +194,46 @@ class Beacon(BaseModel):
     last_seen_at: datetime | None = None
 
 
+# Las reglas repiten los CHECK de 004_modelo_completo.sql: un dato inválido
+# responde 422 con el campo que falla, no un error genérico de la base.
+ID_RECURSO = r"^[a-z0-9][a-z0-9-]{0,39}$"
+Coordenada = Annotated[float, Field(ge=0, le=1)]
+
+
+class CameraIn(BaseModel):
+    """Alta o edición de una cámara. La URL no admite usuario y clave (`@`):
+    las credenciales van en la variable CAMARA_FUENTE del agente."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+    rtsp_url: str = Field(pattern=r"^rtsps?://[^/@\s]+(/\S*)?$", max_length=500)
+    location: str | None = Field(default=None, max_length=120)
+    active: bool = True
+
+
+class ZoneIn(BaseModel):
+    """Zona de riesgo: polígono relativo al cuadro (0 a 1), como lo usa el agente."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    camera_id: str = Field(pattern=ID_RECURSO)
+    name: str = Field(min_length=1, max_length=80)
+    polygon: list[tuple[Coordenada, Coordenada]] = Field(min_length=3, max_length=50)
+    suppression_s: int = Field(default=60, ge=10, le=600)
+    active: bool = True
+
+
+class BeaconIn(BaseModel):
+    """Alta o edición de una baliza y de su alerta (RF-09, RF-10)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+    ip: IPvAnyAddress
+    zone_id: str | None = Field(default=None, pattern=ID_RECURSO)
+    duration_s: int = Field(default=10, ge=1, le=30)
+    sound: Literal["siren", "voice", "beep"] = "siren"
+    message: str | None = Field(default=None, max_length=40)
+
+
 class BeaconStatus(BaseModel):
     """Heartbeat que el agente Edge informa de su baliza (I-05)."""
 
@@ -272,6 +319,30 @@ def require_edge_token(
         )
 
 
+def require_beacon_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> None:
+    expected = os.getenv("BALIZA_TOKEN")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Beacon token is not configured")
+    if credentials is None or not secrets.compare_digest(
+        credentials.credentials, expected
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def validar_beacon_id(beacon_id: str) -> None:
+    if not beacon_id or len(beacon_id) > 32 or any(
+        caracter not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        for caracter in beacon_id
+    ):
+        raise HTTPException(status_code=422, detail="Invalid beacon id")
+
+
 def get_store() -> almacen.Almacen:
     try:
         return almacen.obtener_almacen()
@@ -295,6 +366,42 @@ def health_check() -> dict[str, str]:
     """Devuelve el estado básico de disponibilidad de la API."""
 
     return {"status": "ok", "service": "cascovision-api"}
+
+
+@app.get("/edge/beacons/{beacon_id}/health")
+def beacon_health(
+    beacon_id: str,
+    _: None = Depends(require_beacon_token),
+) -> dict[str, str]:
+    """Estado de la API y PostgreSQL para la pantalla de la baliza."""
+    validar_beacon_id(beacon_id)
+    database = "error"
+    if os.getenv("CASCOVISION_STORAGE", "json").lower() == "postgres":
+        try:
+            import psycopg
+
+            almacen.obtener_almacen().listar({}, 1, 1)
+            database = "ok"
+        except (almacen.AlmacenNoDisponible, psycopg.Error):
+            pass
+    return {"api": "ok", "database": database}
+
+
+@app.post("/edge/beacons/{beacon_id}/logs", status_code=201)
+def receive_beacon_log(
+    beacon_id: str,
+    payload: BeaconLog,
+    _: None = Depends(require_beacon_token),
+) -> dict[str, bool]:
+    """Guarda en el proyecto los logs que la baliza reenvía."""
+    validar_beacon_id(beacon_id)
+    carpeta = config.RAIZ / "Fase 2" / "Evidencias Proyecto" / "logs" / "balizas"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    ruta = carpeta / f"{beacon_id}.txt"
+    with ruta.open("a", encoding="utf-8") as archivo:
+        archivo.write(f"[{datetime.now(timezone.utc).isoformat()}]\n")
+        archivo.write(payload.message.rstrip() + "\n")
+    return {"stored": True}
 
 
 @app.get("/config", dependencies=[Depends(requiere_rol("admin"))])
@@ -383,9 +490,52 @@ def create_user(datos: UserCreate, store: almacen.Almacen = Depends(get_store)) 
     return User(**_store_call(store.crear_usuario, datos.model_dump()))
 
 
+class UserUpdate(BaseModel):
+    """Solo los campos enviados cambian; ``phone: null`` borra el teléfono."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    full_name: str | None = Field(default=None, min_length=1, max_length=120)
+    phone: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{1,14}$")
+    role: Role | None = None
+    active: bool | None = None
+
+    @model_validator(mode="after")
+    def campos_obligatorios_no_nulos(self):
+        for campo in ("full_name", "role", "active"):
+            if campo in self.model_fields_set and getattr(self, campo) is None:
+                raise ValueError(f"{campo} cannot be null")
+        return self
+
+
+@app.patch("/users/{user_id}", response_model=User)
+def update_user(
+    user_id: UUID,
+    datos: UserUpdate,
+    admin: dict = Depends(requiere_rol("admin")),
+    store: almacen.Almacen = Depends(get_store),
+) -> User:
+    """Edición por el administrador (CU-11): nombre, teléfono, rol y activo.
+
+    El correo y la clave no se cambian aquí. El administrador no puede
+    desactivarse ni quitarse el rol a sí mismo: así siempre queda uno activo.
+    """
+
+    cambios = datos.model_dump(include=datos.model_fields_set)
+    if str(user_id) == admin["id"] and (
+        cambios.get("active") is False or cambios.get("role", "admin") != "admin"
+    ):
+        raise HTTPException(status_code=409, detail="You cannot deactivate or demote yourself")
+    usuario = _store_call(store.editar_usuario, str(user_id), cambios)
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return User(**usuario)
+
+
 @app.post("/incidents", status_code=201, response_model=IncidentCreated)
 def create_incident(
     incident: IncidentCreate,
+    tareas: BackgroundTasks,
     _: None = Depends(require_edge_token),
     store: almacen.Almacen = Depends(get_store),
 ) -> IncidentCreated:
@@ -395,6 +545,9 @@ def create_incident(
     ``event="fin"`` el mismo registro se actualiza, usando el ``episode_id``
     como llave: así el aviso periódico no duplica incidentes y el cierre
     fija cuándo terminó la infracción.
+
+    Cada incidente nuevo avisa a los prevencionistas por correo (CU-05)
+    después de responder, para no demorar al agente.
     """
 
     record = incident.model_dump(mode="json")
@@ -413,6 +566,7 @@ def create_incident(
             record["status"] = "open"
             record["created_at"] = ahora
             record["started_at"] = incident.detected_at.isoformat()
+            tareas.add_task(notificar.notificar, store, record, RAIZ_EVIDENCIA)
         else:
             record["id"] = existente["id"]
             record["status"] = existente["status"]
@@ -433,6 +587,7 @@ def create_incident(
     record["last_ping_at"] = None
     record["ended_at"] = None
     _store_call(store.crear_o_actualizar, record)
+    tareas.add_task(notificar.notificar, store, record, RAIZ_EVIDENCIA)
     return IncidentCreated(
         id=record["id"], status="open", created_at=record["created_at"],
         event=incident.event, episode_id=episodio,
@@ -526,19 +681,17 @@ def get_evidence(
     datos = _store_call(store.obtener, incident_id)
     if datos is None:
         raise HTTPException(status_code=404, detail="Incident not found")
-    raiz = (RAIZ_EVIDENCIA / "incidents").resolve()
-    archivo = (RAIZ_EVIDENCIA / datos["evidence_path"]).resolve()
     # La ruta ya se valida al registrar el incidente; esto cubre datos viejos.
-    if not archivo.is_relative_to(raiz) or not archivo.is_file():
+    archivo = notificar.archivo_evidencia(RAIZ_EVIDENCIA, datos["evidence_path"])
+    if archivo is None:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return FileResponse(archivo, media_type="image/jpeg")
 
 
 # ==================== Recursos: cámaras, zonas y balizas ====================
 #
-# Son de lectura para el dashboard y de descarga para el agente Edge. Crearlos
-# y editarlos no es trabajo de esta API: el catálogo lo carga el administrador
-# con db/seed.sql o directamente en la base.
+# Los lee el dashboard y los descarga el agente Edge. El administrador los da
+# de alta y los edita con PUT (CU-09, CU-10); no se borran, se desactivan.
 
 
 def _buscar(listado: list[dict], identificador: str) -> dict | None:
@@ -590,12 +743,48 @@ def list_beacons(store: almacen.Almacen = Depends(get_store)) -> list[Beacon]:
     return [Beacon(**d) for d in _store_call(store.listar_beacons)]
 
 
+IdRecurso = Annotated[str, RutaParam(pattern=ID_RECURSO)]
+SOLO_ADMIN = [Depends(requiere_rol("admin"))]
+
+
+@app.put("/cameras/{camera_id}", response_model=Camera, dependencies=SOLO_ADMIN)
+def put_camera(
+    camera_id: IdRecurso, datos: CameraIn, store: almacen.Almacen = Depends(get_store)
+) -> Camera:
+    """Registra la cámara o reemplaza sus datos (CU-09). Solo administrador."""
+
+    return Camera(**_store_call(store.guardar_camara, {"id": camera_id, **datos.model_dump()}))
+
+
+@app.put("/zones/{zone_id}", response_model=Zone, dependencies=SOLO_ADMIN)
+def put_zone(
+    zone_id: IdRecurso, datos: ZoneIn, store: almacen.Almacen = Depends(get_store)
+) -> Zone:
+    """Registra la zona o reemplaza su polígono (CU-09). El agente la toma en su
+    próximo latido, sin reiniciarse."""
+
+    registro = {"id": zone_id, **datos.model_dump(mode="json")}
+    return Zone(**_store_call(store.guardar_zona, registro))
+
+
+@app.put("/beacons/{beacon_id}", response_model=Beacon, dependencies=SOLO_ADMIN)
+def put_beacon(
+    beacon_id: IdRecurso, datos: BeaconIn, store: almacen.Almacen = Depends(get_store)
+) -> Beacon:
+    """Registra la baliza, su zona y su alerta (CU-10). El estado en línea lo
+    sigue informando el agente con su latido."""
+
+    registro = {"id": beacon_id, **datos.model_dump(mode="json")}
+    return Beacon(**_store_call(store.guardar_baliza, registro))
+
+
 # ==================== Configuración del agente Edge ====================
 
 
 @app.get("/edge/config", response_model=EdgeConfig)
 def get_edge_config(
     camera_id: str = Query(min_length=1),
+    zone_id: str | None = Query(default=None, min_length=1),
     _: None = Depends(require_edge_token),
     store: almacen.Almacen = Depends(get_store),
 ) -> EdgeConfig:
@@ -608,6 +797,10 @@ def get_edge_config(
     El agente conserva su ``config.json`` como respaldo: un borde no puede
     depender de la API para arrancar. Si la zona no tiene baliza, el campo
     ``beacon`` viene en null y el agente avisa solo a la API.
+
+    Cámara y zona van aunque estén desactivadas, con su ``active``: así el
+    agente distingue "desactivada en el dashboard" (pausa) de "API caída"
+    (sigue con lo último que supo).
     """
 
     camara = _buscar(_store_call(store.listar_camaras), camera_id)
@@ -617,9 +810,10 @@ def get_edge_config(
     zonas = _store_call(store.listar_zonas, camera_id)
     if not zonas:
         raise HTTPException(status_code=404, detail="No zones for this camera")
-    # Una zona por cámara en la práctica; si hubiera más, el agente vigila la
-    # primera, que es la que informa en su configuración local.
-    zona = zonas[0]
+    # El agente pide la zona que vigila, para recibir su estado y no el de
+    # otra zona de la misma cámara. Sin zone_id (o si ya no existe), la primera.
+    zona = _buscar(zonas, zone_id) if zone_id else None
+    zona = zona or zonas[0]
 
     baliza = next(
         (b for b in _store_call(store.listar_beacons) if b.get("zone_id") == zona["id"]),
@@ -676,8 +870,7 @@ def _zona_horaria_requerida(nombre: str, valor: datetime | None) -> None:
         )
 
 
-@app.get("/reports", response_model=Reporte, dependencies=[Depends(usuario_actual)])
-def get_report(
+def filtros_reporte(
     desde: datetime | None = None,
     hasta: datetime | None = None,
     camera_id: str | None = None,
@@ -685,6 +878,42 @@ def get_report(
     violation_type: ViolationType | None = None,
     status: IncidentStatus | None = None,
     beacon_status: Literal["alerted", "failed", "skipped_offline"] | None = None,
+) -> dict:
+    """Filtros comunes del reporte y de su exportación, ya validados."""
+
+    _zona_horaria_requerida("desde", desde)
+    _zona_horaria_requerida("hasta", hasta)
+    if desde is not None and hasta is not None and desde > hasta:
+        raise HTTPException(
+            status_code=422, detail="'desde' must not be after 'hasta'"
+        )
+    return {
+        campo: valor
+        for campo, valor in {
+            "desde": desde,
+            "hasta": hasta,
+            "camera_id": camera_id,
+            "zone_id": zone_id,
+            "violation_type": violation_type,
+            "status": status,
+            "beacon_status": beacon_status,
+        }.items()
+        if valor is not None
+    }
+
+
+def _reporte(store: almacen.Almacen, filtros: dict, pagina: int, limite: int) -> Reporte:
+    datos = _store_call(store.reportar, filtros, pagina, limite)
+    return Reporte(
+        total=datos["total"],
+        resumen=ReporteResumen(**datos["resumen"]),
+        incidentes=[_fila_reporte(d) for d in datos["incidentes"]],
+    )
+
+
+@app.get("/reports", response_model=Reporte, dependencies=[Depends(usuario_actual)])
+def get_report(
+    filtros: dict = Depends(filtros_reporte),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     store: almacen.Almacen = Depends(get_store),
@@ -704,29 +933,40 @@ def get_report(
     correcto, no es un fallo del agente.
     """
 
-    _zona_horaria_requerida("desde", desde)
-    _zona_horaria_requerida("hasta", hasta)
-    if desde is not None and hasta is not None and desde > hasta:
-        raise HTTPException(
-            status_code=422, detail="'desde' must not be after 'hasta'"
-        )
+    return _reporte(store, filtros, page, limit)
 
-    filtros = {
-        campo: valor
-        for campo, valor in {
-            "desde": desde,
-            "hasta": hasta,
-            "camera_id": camera_id,
-            "zone_id": zone_id,
-            "violation_type": violation_type,
-            "status": status,
-            "beacon_status": beacon_status,
-        }.items()
-        if valor is not None
+
+# shortcut: tope fijo de filas por archivo; paginar el archivo si un periodo real lo supera.
+LIMITE_EXPORTACION = 5000
+TIPOS_EXPORTACION = {
+    "pdf": "application/pdf",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+@app.get("/reports/export", dependencies=[Depends(usuario_actual)])
+def export_report(
+    formato: Literal["pdf", "xlsx"],
+    filtros: dict = Depends(filtros_reporte),
+    store: almacen.Almacen = Depends(get_store),
+) -> Response:
+    """El mismo reporte en PDF o Excel, con toda la selección (RF-15, CU-08).
+
+    Incluye los totales, las agrupaciones por zona, turno y hora, y una fila
+    por incidente con la hora de Santiago. Si la selección supera
+    ``LIMITE_EXPORTACION`` filas, el archivo lo advierte.
+    """
+
+    reporte = _reporte(store, filtros, 1, LIMITE_EXPORTACION)
+    nombres = {
+        "camaras": {c["id"]: c["name"] for c in _store_call(store.listar_camaras)},
+        "zonas": {z["id"]: z["name"] for z in _store_call(store.listar_zonas)},
     }
-    datos = _store_call(store.reportar, filtros, page, limit)
-    return Reporte(
-        total=datos["total"],
-        resumen=ReporteResumen(**datos["resumen"]),
-        incidentes=[_fila_reporte(d) for d in datos["incidentes"]],
+    generar = exportar.a_pdf if formato == "pdf" else exportar.a_excel
+    contenido = generar(reporte.model_dump(), nombres, filtros)
+    nombre = f"reporte_cascovision_{datetime.now(almacen.ZONA_LOCAL):%Y%m%d_%H%M}.{formato}"
+    return Response(
+        contenido,
+        media_type=TIPOS_EXPORTACION[formato],
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )

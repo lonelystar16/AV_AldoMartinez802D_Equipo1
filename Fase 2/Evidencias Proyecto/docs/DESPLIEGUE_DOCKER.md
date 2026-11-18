@@ -25,7 +25,7 @@ Cuando `docker compose ps` muestra todo arriba, el dashboard queda en `http://12
 | Perfil | Servicios | Para qué |
 | --- | --- | --- |
 | (ninguno) | `db`, `api`, `dashboard`, `edge` | Producción en la faena. Requiere `CAMARA_FUENTE` con la URL RTSP real y una baliza real en `docker/edge/config.json` |
-| `dev` | además `rtsp-sim`, `receptor-sim` | Demostración y pruebas: una cámara RTSP que repite `docker/rtsp-sim/video_prueba.mp4` y una baliza simulada |
+| `dev` | además `rtsp-sim`, `receptor-sim`, `mailpit` | Demostración y pruebas: una cámara RTSP que repite `docker/rtsp-sim/video_prueba.mp4`, una baliza simulada y un buzón de correo de prueba |
 
 ## Qué se levanta
 
@@ -37,6 +37,7 @@ Cuando `docker compose ps` muestra todo arriba, el dashboard queda en `http://12
 | `edge` | `cascovision/edge` (CPU) | ninguno | `ultimo_cuadro.jpg` actualizado en el último minuto |
 | `rtsp-sim` (dev) | `bluenviron/mediamtx:1.15.0-ffmpeg` | ninguno (`rtsp://rtsp-sim:8554/camara-01` en la red interna) | |
 | `receptor-sim` (dev) | `cascovision/receptor-sim` | `127.0.0.1:8081` (`GET /health`: `"alerting": true` mientras suena) | |
+| `mailpit` (dev) | `axllent/mailpit:v1.27.10` | `127.0.0.1:8025` (buzón web con los avisos por correo) | |
 
 Los puertos solo se publican en `127.0.0.1`. En la faena se quita el de la API (AD-07).
 
@@ -87,6 +88,7 @@ Probado el 05-11-2026: un respaldo restaurado en una base aparte conserva los mi
 - **El modelo no va en la imagen:** se monta `./models` en solo lectura. Cambiar el modelo no exige reconstruir.
 - **El layout `Fase 2/Evidencias Proyecto/` se conserva dentro de las imágenes** porque el código ubica su raíz buscando la carpeta `Fase 2`.
 - **`receptor-sim` corre `src/firmware/receptor-sim/server.py`** (tarea 4.6), que solo usa la biblioteca estándar. Exige un `BALIZA_TOKEN` de al menos 32 caracteres y deja cada orden recibida en `/data/alerts.jsonl`: `docker compose exec receptor-sim cat /data/alerts.jsonl`.
-- **`JWT_SECRET` va a la API y `CASCOVISION_ADMIN_*` a la base**, que crea ese administrador al iniciarse por primera vez. Cambiar la clave después no recrea el usuario: se hace desde la base o con `POST /users`. Twilio y SMTP todavía no se pasan a ningún contenedor (tarea 4.20).
+- **`JWT_SECRET` va a la API y `CASCOVISION_ADMIN_*` a la base**, que crea ese administrador al iniciarse por primera vez. Cambiar la clave después no recrea el usuario: se hace desde la base o con `POST /users`.
+- **Aviso por correo (tarea 4.20):** con `SMTP_HOST` en `.env`, cada incidente nuevo envía un correo a los prevencionistas activos, con la imagen difuminada adjunta, y queda en la tabla `notifications` como `sent` o `failed`. Para la demo: `SMTP_HOST=mailpit` y `SMTP_PORT=1025`, y los correos se ven en http://127.0.0.1:8025.
 - **La API monta el volumen `evidencia` en solo lectura** para entregar la imagen difuminada en `GET /incidents/{id}/evidence`.
 - **El entrenamiento del modelo no corre en Docker:** en macOS y Windows un contenedor no ve la GPU. Ver `Yolo/README.md`, sección Entrenamiento.

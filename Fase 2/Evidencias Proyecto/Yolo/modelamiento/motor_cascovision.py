@@ -89,7 +89,7 @@ SOLAPAMIENTO_MIN = 0.35
 UMBRAL_EPP_CUBRE_PERSONA = 0.7
 
 VENTANA_SUAVIZADO = 5
-MIN_FRAMES_PARA_ALERTAR = 2
+MIN_FRAMES_PARA_ALERTAR = 4
 FRAME_PARA_DESCARTAR = 45
 
 # La deteccion de 'Person' parpadea (gafas, sombra, perfil) y ByteTrack reparte
@@ -937,6 +937,17 @@ class MonitorEPP:
         if self.al_registrar:
             self.al_registrar(incidente)
         return incidente
+
+    def cerrar_episodios(self):
+        """Cierra con 'fin' todo episodio en curso o en espera y olvida a las
+        personas seguidas. Es para cuando se deja de vigilar (cámara o zona
+        desactivada): sin cuadros nadie cerraría esos incidentes."""
+        episodios = list(self.episodio.values()) + [e["episodio"] for e in self.en_espera]
+        for estado in (self.episodio, self.historial, self.ultimo_estado, self.estado_confirmado,
+                       self.violacion_confirmada, self.ultimo_visto, self.caja_vista):
+            estado.clear()
+        self.en_espera = []
+        return [c for c in map(self._cerrar_episodio, episodios) if c is not None]
 
     # ---------- difuminado ----------
     @staticmethod
