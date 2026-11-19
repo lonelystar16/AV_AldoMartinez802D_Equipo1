@@ -3,11 +3,12 @@
 import os
 import secrets
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi import Path as RutaParam
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -371,10 +372,17 @@ def health_check() -> dict[str, str]:
 @app.get("/edge/beacons/{beacon_id}/health")
 def beacon_health(
     beacon_id: str,
+    request: Request,
     _: None = Depends(require_beacon_token),
 ) -> dict[str, str]:
     """Estado de la API y PostgreSQL para la pantalla de la baliza."""
     validar_beacon_id(beacon_id)
+    if request.client is not None:
+        try:
+            ip = str(ip_address(request.client.host))
+            almacen.obtener_almacen().actualizar_ip_beacon(beacon_id, ip)
+        except (ValueError, almacen.Conflicto, almacen.AlmacenNoDisponible):
+            pass
     database = "error"
     if os.getenv("CASCOVISION_STORAGE", "json").lower() == "postgres":
         try:
