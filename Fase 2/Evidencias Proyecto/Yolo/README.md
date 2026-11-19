@@ -443,6 +443,55 @@ uv run uvicorn app.main:app --app-dir "Fase 2/Evidencias Proyecto/src/api" --rel
 uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_api.py"
 ```
 
+### Desde un archivo o un enlace remoto
+
+`monitoreo_video.py` acepta ademas una ruta de video o una URL, y reporta a la
+API igual que el agente Edge:
+
+```bash
+# Archivo local
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" video.mp4
+
+# URL directa de video (mp4, m3u8, rtsp): se transmite sin descargar
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" "https://ejemplo.com/a.mp4"
+
+# Enlace de una pagina (YouTube y demas): yt-dlp lo resuelve al stream
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" "https://youtube.com/watch?v=..."
+
+# Sin API: solo ventana y evidencia local
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" --sin-api video.mp4
+```
+
+Los enlaces de pagina necesitan `yt-dlp` (`uv sync --group dev --group yolo`).
+Si OpenCV no puede leer el stream resuelto, el script baja el archivo a un
+temporal y procesa ese; los streams en vivo (`rtsp://`, `rtmp://`) no se
+descargan.
+
+Los cuatro scripts de monitoreo pintan en cada cuadro su meta de 30 FPS
+(`FPS 28.4 | meta 30 | OK`) y resumen al salir. La metrica cronometra solo
+`MonitorEPP.procesar()`, no el pintado de la ventana; ver `rendimiento.py`.
+
+### Modelo y meta de 30 FPS
+
+Los cuatro scripts aceptan `--modelo {auto,onnx,pt}`, con `auto` por defecto.
+`auto` es el comportamiento de siempre: el motor elige, y prefiere el `.onnx`.
+
+Conviene poder forzar el `.pt`, porque de ahi depende si la meta se alcanza en
+una maquina concreta. Si el provider CUDA de ONNX Runtime no carga (le faltan
+cuDNN y CUDA), el `.onnx` cae a CPU y no llega; el `.pt` usa la GPU de PyTorch:
+
+```bash
+# .pt sobre la GPU: 48.7 FPS, CUMPLE
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" --modelo pt video.mp4
+
+# auto (.onnx sobre CPU): 11.2 FPS, NO CUMPLE
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" --modelo auto video.mp4
+```
+
+Los primeros 10 cuadros quedan apartados del calculo: arrastran la carga del
+modelo y la inicializacion de la GPU, que no se repite. Contarlos hundiria el
+promedio de una corrida que si sostiene la meta.
+
 Presionar `q` en la ventana de video para finalizar.
 
 ### Entrenamiento
