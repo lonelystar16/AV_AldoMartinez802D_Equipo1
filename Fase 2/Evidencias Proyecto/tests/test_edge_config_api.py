@@ -142,6 +142,26 @@ def test_sin_url_local_la_baliza_se_dirige_por_su_ip(api) -> None:
     assert cfg["baliza"]["duracion_s"] == 12
 
 
+def test_actualiza_url_de_baliza_si_la_ip_remota_cambia() -> None:
+    baliza = agente.ClienteBaliza("http://192.168.50.21", "token",
+                                  "zona-norte", "Zona Norte")
+    remota = {"beacon": {"ip": "192.168.18.217"}}
+
+    assert agente.refrescar_url_baliza(baliza, remota, None) is True
+    assert baliza.url == "http://192.168.18.217"
+    assert agente.refrescar_url_baliza(baliza, remota, None) is False
+
+
+def test_url_local_de_baliza_sigue_siendo_override() -> None:
+    baliza = agente.ClienteBaliza("http://127.0.0.1:8081", "token",
+                                  "zona-norte", "Zona Norte")
+
+    assert agente.refrescar_url_baliza(
+        baliza, {"beacon": {"ip": "192.168.18.217"}}, baliza.url
+    ) is False
+    assert baliza.url == "http://127.0.0.1:8081"
+
+
 def test_sin_baliza_en_la_api_la_config_local_sigue_viva(api) -> None:
     api["respuestas"] = dict(RESPUESTA_API, beacon=None)
     cfg = _config(api)

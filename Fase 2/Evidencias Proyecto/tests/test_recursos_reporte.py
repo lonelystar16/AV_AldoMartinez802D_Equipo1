@@ -352,6 +352,21 @@ def test_heartbeat_baliza_inexistente_responde_404() -> None:
     assert respuesta.status_code == 404
 
 
+def test_health_de_baliza_actualiza_ip_de_origen(monkeypatch) -> None:
+    monkeypatch.setenv("BALIZA_TOKEN", TOKEN)
+    recursos = json.loads(almacen.ARCHIVO_RECURSOS.read_text(encoding="utf-8"))
+    recursos["beacons"][0]["ip"] = "192.168.18.100"
+    almacen.ARCHIVO_RECURSOS.write_text(json.dumps(recursos), encoding="utf-8")
+
+    respuesta = peticion(
+        "GET", "/edge/beacons/baliza-01/health", headers=AUTH
+    )
+
+    assert respuesta.status_code == 200
+    guardados = json.loads(almacen.ARCHIVO_RECURSOS.read_text(encoding="utf-8"))
+    assert guardados["beacons"][0]["ip"] == "127.0.0.1"
+
+
 # ==================== Reporte ====================
 
 
