@@ -420,9 +420,9 @@ bool violacionValida(const char *valor) {
 }
 
 String textoEpp(const bool casco, const bool chaleco) {
-  if (casco && chaleco) return "SIN CASCO Y CHALECO";
-  if (casco) return "SIN CASCO";
-  return "SIN CHALECO";
+  if (casco && chaleco) return "FALTA CASCO Y CHALECO";
+  if (casco) return "FALTA CASCO";
+  return "FALTA CHALECO";
 }
 
 void mostrarAlerta(const String &nombreZona, const String &mensaje,
