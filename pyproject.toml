@@ -38,6 +38,9 @@ yolo = [
     # sigue disponible desde 4.5.4.
     "opencv-python>=4.11,<5.0",
     "numpy>=1.26",
+    # Resuelve enlaces de paginas (YouTube y demas) al stream que OpenCV abre,
+    # en monitoreo_video.py. Las URLs directas de video no lo necesitan.
+    "yt-dlp>=2025.1.1",
 ]
 
 # PyTorch no publica wheels CUDA en PyPI para Windows: se toma del indice
