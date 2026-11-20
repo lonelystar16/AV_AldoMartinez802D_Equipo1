@@ -16,7 +16,7 @@ constexpr size_t MAX_CUERPO = 1024;
 constexpr size_t MAX_COMANDO_USB = 384;
 constexpr size_t MAX_LOG_LOCAL_BYTES = 4096;
 constexpr size_t ALERTAS_RECIENTES = 8;
-constexpr char VERSION_FIRMWARE[] = "1.0.0";
+constexpr char VERSION_FIRMWARE[] = "1.0.1";
 constexpr char ARCHIVO_LOG_LOCAL[] = "/errores_baliza.txt";
 
 Preferences preferencias;
@@ -39,8 +39,11 @@ size_t largoCuerpoEsperado = 0;
 bool alertando = false;
 bool sonidoSilenciado = false;
 bool apiDisponible = false;
+bool rutaBalizaDisponible = false;
 bool bdDisponible = false;
 bool estadoServiciosConsultado = false;
+int codigoApiHttp = 0;
+int codigoRutaBalizaHttp = 0;
 String sonidoAlerta;
 String idAlertaActual;
 String idsRecientes[ALERTAS_RECIENTES];
@@ -88,7 +91,10 @@ void estadoUsb() {
   respuesta["api_url"] = apiUrl;
   respuesta["wifi_connected"] = configuracionValida && WiFi.status() == WL_CONNECTED;
   respuesta["api_ok"] = apiDisponible;
+  respuesta["api_beacon_ok"] = rutaBalizaDisponible;
   respuesta["database_ok"] = bdDisponible;
+  respuesta["api_http"] = codigoApiHttp;
+  respuesta["beacon_health_http"] = codigoRutaBalizaHttp;
   responderUsb(respuesta);
 }
 
@@ -173,8 +179,11 @@ void configurarUsb(JsonObjectConst orden) {
   wifiPassword = nuevaPassword;
   apiUrl = nuevaApi;
   apiDisponible = false;
+  rutaBalizaDisponible = false;
   bdDisponible = false;
   estadoServiciosConsultado = false;
+  codigoApiHttp = 0;
+  codigoRutaBalizaHttp = 0;
   ultimoChequeoApi = 0;
 
   StaticJsonDocument<160> respuesta;
@@ -646,10 +655,18 @@ void mostrarEnLinea() {
   M5.Display.printf("IP: %s\n", WiFi.localIP().toString().c_str());
   M5.Display.printf("Bateria: %d%%\n", M5.Power.getBatteryLevel());
   M5.Display.printf("RSSI: %d dBm\n", WiFi.RSSI());
-  M5.Display.printf("API: %s\n", !estadoServiciosConsultado ? "consultando" :
+  M5.Display.printf("API Docker: %s\n", !estadoServiciosConsultado ? "consultando" :
                     apiDisponible ? "OK" : "ERROR");
-  M5.Display.printf("BD: %s\n", !estadoServiciosConsultado ? "consultando" :
-                    !apiDisponible ? "sin dato" : bdDisponible ? "OK" : "ERROR");
+  String estadoRuta = "consultando";
+  if (estadoServiciosConsultado) {
+    if (!apiDisponible) estadoRuta = "sin API";
+    else if (rutaBalizaDisponible) estadoRuta = "OK";
+    else if (codigoRutaBalizaHttp > 0) estadoRuta = "HTTP " + String(codigoRutaBalizaHttp);
+    else estadoRuta = "sin respuesta";
+  }
+  M5.Display.printf("Ruta baliza: %s\n", estadoRuta.c_str());
+  M5.Display.printf("BD: %s\n", !rutaBalizaDisponible ? "sin dato" :
+                    bdDisponible ? "OK" : "ERROR");
 }
 
 void guardarLogLocal(const String &mensaje) {
@@ -704,43 +721,78 @@ void enviarLogsPendientes() {
 }
 
 void consultarEstadoServicios() {
+  bool apiNueva = false;
+  bool rutaBalizaNueva = false;
+  bool bdNueva = false;
+  String error;
+
+  // El ESP32 no resuelve el DNS interno de Compose: apiUrl debe ser la IP LAN del PC.
   WiFiClient cliente;
   HTTPClient http;
   http.setTimeout(2000);
-  const String ruta = apiUrl + "/edge/beacons/" + beaconId + "/health";
+  const String ruta = apiUrl + "/health";
   const bool iniciado = http.begin(cliente, ruta);
   int codigo = -1;
-  String error;
   if (!iniciado) {
-    error = "No se pudo iniciar la consulta de estado de la API.";
+    error = "No se pudo iniciar la consulta de la API Docker.";
   } else {
-    http.addHeader("Authorization", "Bearer " + token);
     codigo = http.GET();
   }
-  bool apiNueva = false;
-  bool bdNueva = false;
+  codigoApiHttp = codigo;
   if (codigo == HTTP_CODE_OK) {
-    StaticJsonDocument<256> estado;
-    if (!deserializeJson(estado, http.getString()) && estado["api"] == "ok") {
+    StaticJsonDocument<192> estado;
+    if (!deserializeJson(estado, http.getString()) && estado["status"] == "ok") {
       apiNueva = true;
-      bdNueva = estado["database"] == "ok";
-      if (!bdNueva) error = "API disponible; PostgreSQL no responde.";
     } else {
-      error = "La API devolvio un estado invalido.";
+      error = "La API Docker devolvio un estado invalido.";
     }
   } else if (iniciado) {
-    error = "Error al consultar la API; HTTP " + String(codigo) + ".";
+    error = "La API Docker no respondio; HTTP " + String(codigo) + ".";
   }
   if (iniciado) http.end();
 
+  if (apiNueva) {
+    WiFiClient clienteBaliza;
+    HTTPClient httpBaliza;
+    httpBaliza.setTimeout(2000);
+    const String rutaBaliza = apiUrl + "/edge/beacons/" + beaconId + "/health";
+    const bool consultaIniciada = httpBaliza.begin(clienteBaliza, rutaBaliza);
+    int codigo = -1;
+    if (consultaIniciada) {
+      httpBaliza.addHeader("Authorization", "Bearer " + token);
+      codigo = httpBaliza.GET();
+    }
+    codigoRutaBalizaHttp = codigo;
+    if (codigo == HTTP_CODE_OK) {
+      StaticJsonDocument<256> estado;
+      if (!deserializeJson(estado, httpBaliza.getString()) && estado["api"] == "ok") {
+        rutaBalizaNueva = true;
+        bdNueva = estado["database"] == "ok";
+        if (!bdNueva) error = "API Docker OK; PostgreSQL no responde.";
+      } else {
+        error = "La ruta autenticada de baliza devolvio un estado invalido.";
+      }
+    } else if (consultaIniciada) {
+      error = "API Docker OK; ruta de baliza HTTP " + String(codigo) + ".";
+    } else {
+      error = "API Docker OK; no se pudo iniciar la ruta de baliza.";
+    }
+    if (consultaIniciada) httpBaliza.end();
+  } else {
+    codigoRutaBalizaHttp = 0;
+  }
+
   const bool cambio = !estadoServiciosConsultado ||
                       apiNueva != apiDisponible || bdNueva != bdDisponible;
-  const bool recuperado = estadoServiciosConsultado && apiNueva && bdNueva &&
-                          (!apiDisponible || !bdDisponible);
+  const bool rutaCambio = rutaBalizaNueva != rutaBalizaDisponible;
+  const bool recuperado = estadoServiciosConsultado && apiNueva &&
+                          rutaBalizaNueva && bdNueva &&
+                          (!apiDisponible || !rutaBalizaDisponible || !bdDisponible);
   apiDisponible = apiNueva;
+  rutaBalizaDisponible = rutaBalizaNueva;
   bdDisponible = bdNueva;
   estadoServiciosConsultado = true;
-  if (cambio && !error.isEmpty()) guardarLogLocal(error);
+  if ((cambio || rutaCambio) && !error.isEmpty()) guardarLogLocal(error);
   if (recuperado) guardarLogLocal("API y PostgreSQL recuperados.");
   if (apiDisponible) enviarLogsPendientes();
   if (!alertando && pantallaEnLinea) mostrarEnLinea();

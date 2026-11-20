@@ -5,6 +5,7 @@ param(
     [switch]$ActualizarClave
 )
 
+try {
 $ErrorActionPreference = "Stop"
 
 function Invoke-StickCommand([hashtable]$Command, [int]$TimeoutMs = 5000) {
@@ -136,4 +137,13 @@ try {
 finally {
     if ($serial.IsOpen) { $serial.Close() }
     $clave = $null
+}
+}
+catch {
+    Write-Host "`nError: $($_.Exception.Message)" -ForegroundColor Red
+    throw
+}
+finally {
+    Write-Host "`nPresiona cualquier tecla para cerrar..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }

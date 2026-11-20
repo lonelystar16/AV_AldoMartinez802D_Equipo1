@@ -24,6 +24,8 @@ de la ventana: ver `rendimiento.py`.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import shutil
 import sys
 import tempfile
@@ -34,7 +36,10 @@ from urllib.parse import urlparse
 import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+PROYECTO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROYECTO / "src" / "edge"))
 
+from agente import ClienteBaliza, _configuracion_remota, aplicar_configuracion_remota  # noqa: E402
 from monitoreo_api import API_POR_DEFECTO, RAIZ_EVIDENCIA, ReporteAPI  # noqa: E402
 from motor_cascovision import (  # noqa: E402
     CAMARA_POR_DEFECTO,
@@ -267,9 +272,11 @@ def main() -> None:
     analizador.add_argument("fuente", nargs="?", default="0",
                             help="Indice de camara (0 por defecto), ruta de un "
                                  "archivo de video o URL (directa o de pagina)")
-    analizador.add_argument("--api", default=API_POR_DEFECTO,
+    analizador.add_argument("--config", type=Path, default=None,
+                            help="JSON local del agente Edge (incluye URL y zona de la baliza)")
+    analizador.add_argument("--api", default=None,
                             help="URL base de la API REST")
-    analizador.add_argument("--camera-id", default=CAMARA_POR_DEFECTO,
+    analizador.add_argument("--camera-id", default=None,
                             help=f"Id de la camara reportada ({CAMARA_POR_DEFECTO} "
                                  "por defecto)")
     analizador.add_argument("--fps", type=_meta_fps, default=FPS_OBJETIVO,
@@ -294,24 +301,51 @@ def main() -> None:
                                  "0 lo desactiva (por defecto)")
     argumentos = analizador.parse_args()
 
+    config_default = PROYECTO / "src" / "edge" / "config-baliza.local.json"
+    if not config_default.is_file():
+        config_default = PROYECTO / "src" / "edge" / "config.example.json"
+    cfg = json.loads((argumentos.config or config_default).read_text(encoding="utf-8"))
+    cfg["camera_id"] = argumentos.camera_id or cfg["camera_id"]
+    cfg["api"] = argumentos.api or cfg["api"]
+    remota = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
+    if remota:
+        aplicar_configuracion_remota(cfg, remota)
+    baliza_cfg = cfg.get("baliza", {})
+    baliza = ClienteBaliza(baliza_cfg.get("url", ""),
+                           os.getenv("BALIZA_TOKEN", ""),
+                           cfg["zone_id"], cfg.get("zone_name", cfg["zone_id"]),
+                           baliza_cfg.get("duracion_s", 10))
+
     zonas = _cargar_zonas(Path(argumentos.zonas) if argumentos.zonas else None,
-                          argumentos.camera_id)
+                          cfg["camera_id"])
 
     reporte: ReporteAPI | None = None
     if argumentos.sin_api:
         print("Aviso: --sin-api; los incidentes no se envian a la API.")
     else:
-        reporte = ReporteAPI(argumentos.api)
+        reporte = ReporteAPI(cfg["api"])
         if not reporte.token:
             print("Aviso: EDGE_API_TOKEN no esta definido; "
                   "la API rechazara los incidentes (401/503).")
 
     ruta_modelo = resolver_modelo(argumentos.modelo)
+    def registrar(incidente: dict) -> None:
+        if incidente.get("event", "inicio") != "fin":
+            incidente["beacon_alert"] = baliza.alertar(incidente["violation_types"])
+        else:
+            incidente.setdefault("beacon_alert", {"status": "skipped_offline", "latency_ms": None})
+        incidente["camera_id"], incidente["zone_id"] = cfg["camera_id"], cfg["zone_id"]
+        if reporte:
+            ok = reporte.enviar(incidente)
+            print(f"  Baliza {incidente['beacon_alert']['status']} · API {'OK' if ok else 'no enviada'}")
+        else:
+            print(f"  Baliza {incidente['beacon_alert']['status']} · API desactivada")
+
     monitor = MonitorEPP(ruta_modelo=ruta_modelo,
                          carpeta_evidencia=RAIZ_EVIDENCIA,
-                         al_registrar=reporte.enviar if reporte else None,
+                         al_registrar=registrar,
                          ping_segundos=argumentos.ping,
-                         camera_id=argumentos.camera_id,
+                         camera_id=cfg["camera_id"],
                          zonas=zonas)
 
     cap, temporal = abrir_fuente(argumentos.fuente)
@@ -321,7 +355,7 @@ def main() -> None:
     print(f"Fuente:  {argumentos.fuente}")
     print(f"Modelo:  {ruta_modelo or RUTA_MODELO_EPP}")
     print(f"API:     {'(desactivada)' if reporte is None else reporte.url + '/incidents'}")
-    print(f"Camara:  {argumentos.camera_id}")
+    print(f"Camara:  {cfg['camera_id']}")
     print(f"Evidencia: {RAIZ_EVIDENCIA}")
     if zonas:
         print(f"Zonas vigiladas: {', '.join(z['id'] for z in zonas)}")
