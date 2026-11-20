@@ -94,6 +94,14 @@ def test_faltantes_incluye_el_token(monkeypatch) -> None:
     assert "EDGE_API_TOKEN" in config.faltantes_obligatorias()
 
 
+def test_faltantes_incluye_token_baliza(monkeypatch) -> None:
+    monkeypatch.setenv("EDGE_API_TOKEN", "secreto")
+    monkeypatch.delenv("BALIZA_TOKEN", raising=False)
+    monkeypatch.setenv("CASCOVISION_STORAGE", "json")
+
+    assert "BALIZA_TOKEN" in config.faltantes_obligatorias()
+
+
 def test_faltantes_exige_postgres_cuando_corresponde(monkeypatch) -> None:
     monkeypatch.setenv("EDGE_API_TOKEN", "secreto")
     monkeypatch.setenv("CASCOVISION_STORAGE", "postgres")
@@ -109,6 +117,7 @@ def test_faltantes_exige_postgres_cuando_corresponde(monkeypatch) -> None:
 
 def test_sin_faltantes_con_json(monkeypatch) -> None:
     monkeypatch.setenv("EDGE_API_TOKEN", "secreto")
+    monkeypatch.setenv("BALIZA_TOKEN", "b" * 40)
     monkeypatch.setenv("CASCOVISION_STORAGE", "json")
 
     assert config.faltantes_obligatorias() == []
