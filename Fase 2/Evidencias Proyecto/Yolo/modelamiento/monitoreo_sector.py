@@ -21,6 +21,7 @@ reales de cada cámara. Ver `zonas.py`.
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -28,7 +29,14 @@ import cv2
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from monitoreo_api import API_POR_DEFECTO, RAIZ_EVIDENCIA, ReporteAPI  # noqa: E402
-from motor_cascovision import RAIZ, PING_SEGUNDOS, MonitorEPP  # noqa: E402
+from motor_cascovision import RAIZ, PING_SEGUNDOS, RUTA_MODELO_EPP, MonitorEPP  # noqa: E402
+from rendimiento import (  # noqa: E402
+    FPS_OBJETIVO,
+    OPCIONES_MODELO,
+    MedidorFPS,
+    dibujar_hud,
+    resolver_modelo,
+)
 from zonas import ErrorZonas, cargar_zonas, comprobar_solapes  # noqa: E402
 
 RUTA_ZONAS = RAIZ / "Fase 2" / "Evidencias Proyecto" / "config" / "zonas.json"
@@ -47,6 +55,9 @@ def main() -> None:
                                  f"({CAMARA_POR_DEFECTO} por defecto)")
     analizador.add_argument("--fuente", type=int, default=0,
                             help="Indice de la camara (0 por defecto)")
+    analizador.add_argument("--modelo", choices=OPCIONES_MODELO, default="auto",
+                            help="Modelo a cargar: 'auto' deja que el motor elija "
+                                 "(prefiere el .onnx); 'pt' usa la GPU de PyTorch")
     analizador.add_argument("--ping", type=int, default=PING_SEGUNDOS,
                             help=f"Segundos entre avisos de una persona que sigue "
                                  f"sin EPP ({PING_SEGUNDOS} por defecto). 0 desactiva el ping")
@@ -75,7 +86,9 @@ def main() -> None:
     reporte = ReporteAPI(argumentos.api)
     if not reporte.token:
         print("Aviso: EDGE_API_TOKEN no está definido; la API rechazará los incidentes (401/503).")
-    monitor = MonitorEPP(carpeta_evidencia=RAIZ_EVIDENCIA,
+    ruta_modelo = resolver_modelo(argumentos.modelo)
+    monitor = MonitorEPP(ruta_modelo=ruta_modelo,
+                         carpeta_evidencia=RAIZ_EVIDENCIA,
                          al_registrar=reporte.enviar,
                          ping_segundos=argumentos.ping,
                          camera_id=argumentos.camera_id,
@@ -86,6 +99,7 @@ def main() -> None:
         raise IOError("No se pudo abrir la fuente de video.")
 
     print("\n--- Agente Edge CascoVision (zonas) ---")
+    print(f"Modelo:  {ruta_modelo or RUTA_MODELO_EPP}")
     print(f"API:     {reporte.url}/incidents")
     print(f"Cámara:  {argumentos.camera_id}")
     print(f"Cola:    {reporte.archivo_cola}")
@@ -100,14 +114,19 @@ def main() -> None:
     else:
         print("PING:   desactivado (0 s).")
     print("FIN:    aviso al cumplir, o al llevar 15 s fuera de su zona.")
+    print(f"Meta de rendimiento: {FPS_OBJETIVO:.0f} FPS.")
     print("Presiona 'q' para finalizar.\n")
 
+    medidor = MedidorFPS()
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
+            t0 = time.perf_counter()
             incidentes = monitor.procesar(frame)
+            # Solo se cronometra el modelo: el imshow y el waitKey no cuentan.
+            medidor.registrar(time.perf_counter() - t0)
             for incidente in incidentes:
                 marca = "OK" if reporte.disponible else "encolado"
                 evento = incidente.get("event", "inicio")
@@ -118,6 +137,7 @@ def main() -> None:
                 enviados = reporte.vaciar_cola()
                 if enviados:
                     print(f"  API recuperada: {enviados} incidentes enviados desde la cola.")
+            dibujar_hud(frame, medidor)
             cv2.imshow("Agente Edge CascoVision", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -126,6 +146,7 @@ def main() -> None:
         cv2.destroyAllWindows()
         if reporte.pendientes:
             print(f"\nQuedan {len(reporte.pendientes)} incidentes en la cola local.")
+        print(medidor.linea_resumen())
 
 
 if __name__ == "__main__":

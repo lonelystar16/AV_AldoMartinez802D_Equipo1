@@ -115,7 +115,12 @@ class ZonalPrueba(agente.MonitorZonal):
     """Motor con detecciones programadas, sin cargar YOLO ni YuNet."""
 
     def __init__(self, zona, escenas):
-        self.zona, self.tamano = zona, (1, 1)
+        self.poligono = zona
+        # Este stub no pasa por `MonitorEPP.__init__`, así que reparte a mano
+        # lo que el motor esperaría encontrar: las zonas en su formato y la
+        # cámara que se reporta. Con eso el motor limita el aviso por su cuenta.
+        self.zonas = zona.como_zonas("zona-prueba")
+        self.camera_id = "camara-prueba"
         self.escenas = iter(escenas)
         self.ping_segundos = 60
         self.historial, self.ultimo_estado, self.estado_confirmado = {}, {}, {}

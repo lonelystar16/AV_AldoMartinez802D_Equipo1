@@ -2,13 +2,15 @@
 
 Por defecto corren contra el almacenamiento JSON en un archivo temporal. Con
 CASCOVISION_TEST_POSTGRES=1 y las variables POSTGRES_* corren contra una base
-PostgreSQL con las migraciones de db/migrations/ aplicadas (la tabla se vacía
-antes de cada prueba).
+PostgreSQL de pruebas. Cada caso crea un esquema aislado con las migraciones
+y los catálogos; las tablas existentes de la base no se modifican.
 """
 
 import asyncio
 import os
+import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -26,16 +28,13 @@ USAR_POSTGRES = os.getenv("CASCOVISION_TEST_POSTGRES") == "1"
 
 
 @pytest.fixture(autouse=True)
-def entorno(tmp_path, monkeypatch):
+def entorno(tmp_path, monkeypatch, request):
     """Token del agente Edge y almacenamiento aislado por prueba."""
 
     monkeypatch.setenv("EDGE_API_TOKEN", TOKEN)
     if USAR_POSTGRES:
-        import psycopg
-
+        request.getfixturevalue("postgres_db")
         monkeypatch.setenv("CASCOVISION_STORAGE", "postgres")
-        with psycopg.connect(**almacen.postgres_config()) as conexion:
-            conexion.execute("TRUNCATE incidents")
     else:
         monkeypatch.setenv("CASCOVISION_STORAGE", "json")
         monkeypatch.setattr(almacen, "ARCHIVO", tmp_path / "incidents.json")
@@ -84,7 +83,37 @@ def test_registrar_incidente_persiste() -> None:
 
     assert respuesta.status_code == 200
     assert respuesta.json()["violation_type"] == "missing_helmet"
+    assert respuesta.json()["violation_types"] == ["missing_helmet"]
     assert respuesta.json()["evidence_path"] == INCIDENTE["evidence_path"]
+
+
+def test_registrar_conserva_violation_types_y_agrega_tipo_principal() -> None:
+    incident_id = _registrar(violation_types=["missing_reflective_vest"]).json()["id"]
+
+    respuesta = _peticion("GET", f"/incidents/{incident_id}")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["violation_types"] == [
+        "missing_reflective_vest", "missing_helmet",
+    ]
+
+
+def test_face_blurred_se_persiste_y_se_devuelve() -> None:
+    incident_id = _registrar(face_blurred=True).json()["id"]
+
+    respuesta = _peticion("GET", f"/incidents/{incident_id}")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["face_blurred"] is True
+
+
+def test_face_blurred_es_falso_por_defecto() -> None:
+    incident_id = _registrar().json()["id"]
+
+    respuesta = _peticion("GET", f"/incidents/{incident_id}")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["face_blurred"] is False
 
 
 def test_registrar_sin_token_responde_401() -> None:
@@ -114,6 +143,15 @@ def test_incidente_invalido_responde_422() -> None:
 
 def test_violacion_desconocida_responde_422() -> None:
     assert _registrar(violation_type="missing_gloves").status_code == 422
+
+
+@pytest.mark.skipif(not USAR_POSTGRES, reason="Las FK se validan en PostgreSQL")
+@pytest.mark.parametrize("campo", ["camera_id", "zone_id"])
+def test_catalogo_desconocido_responde_422(campo: str) -> None:
+    respuesta = _registrar(**{campo: "no-existe"})
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == "Camera or zone is not configured"
+    assert _peticion("GET", "/incidents").json() == []
 
 
 def test_fecha_sin_zona_horaria_responde_422() -> None:
@@ -250,3 +288,23 @@ def test_health_sigue_disponible() -> None:
 
     assert respuesta.status_code == 200
     assert respuesta.json() == {"status": "ok", "service": "cascovision-api"}
+
+
+if __name__ == "__main__":
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"test_incidents_{timestamp}.log"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-vv", "-s", str(Path(__file__).resolve())],
+        cwd=Path(__file__).resolve().parents[1],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    log_path.write_text(result.stdout, encoding="utf-8")
+    print(result.stdout, end="")
+    print(f"\nLog completo guardado en: {log_path}")
+    raise SystemExit(result.returncode)

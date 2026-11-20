@@ -52,13 +52,18 @@ def test_sin_deteccion_en_cabeza_queda_indeterminado() -> None:
     assert "sin_casco" not in estado
 
 
-def test_choque_entre_helmet_y_no_helmet_lo_gana_el_mas_confiable() -> None:
+def test_epp_detectado_puesto_gana_a_deteccion_negativa_en_conflicto() -> None:
     estado = evaluar_persona([epp("helmet", 0.9), epp("no_helmet", 0.4)])
     assert "falta_casco" not in estado
     assert "sin_casco" not in estado
 
-    estado = evaluar_persona([epp("helmet", 0.4), epp("no_helmet", 0.9)])
-    assert "sin_casco" in estado
+    estado = evaluar_persona([epp("helmet", 0.4), epp("no_helmet", 0.9),
+                              epp("no_vest")])
+    assert estado == frozenset({"sin_chaleco"})
+
+    estado = evaluar_persona([epp("vest", 0.4), epp("no_vest", 0.9),
+                              epp("no_helmet")])
+    assert estado == frozenset({"sin_casco"})
 
 
 # ---------- regla de chaleco ----------

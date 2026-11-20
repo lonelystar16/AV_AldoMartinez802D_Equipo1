@@ -11,7 +11,18 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from diagramas_arquitectura import AZUL, NAVY, TEXTO, lienzo
+AZUL = "#2E75B6"
+NAVY = "#17365D"
+TEXTO = "#222222"
+
+
+def lienzo(titulo):
+    fig, ax = plt.subplots(figsize=(18, 14))
+    ax.set_xlim(0, 110)
+    ax.set_ylim(0, 82)
+    ax.axis("off")
+    ax.set_title(titulo, fontsize=15, fontweight="bold", color=NAVY, pad=16)
+    return fig, ax
 
 FILA = 1.45
 
@@ -73,7 +84,11 @@ def er(salida: Path):
         ("", "violation_types", "text[]"), ("", "confidence", "float8"),
         ("", "evidence_path", "text"), ("", "beacon_alert_status", "text"),
         ("", "beacon_alert_latency_ms", "int"), ("", "person_track_id", "int"),
-        ("", "status", "text"), ("", "created_at", "timestamptz")], nueva=False)
+        ("", "status", "text"), ("", "created_at", "timestamptz"),
+        ("UQ", "episode_id", "uuid"), ("", "event", "text"),
+        ("", "ping_count", "int"), ("", "started_at", "timestamptz"),
+        ("", "last_ping_at", "timestamptz"), ("", "ended_at", "timestamptz"),
+        ("", "face_blurred", "bool"), ("", "updated_at", "timestamptz")], nueva=False)
     eve = tabla(ax, 80, 77, 27, "incident_events", [
         ("PK", "id", "bigserial"), ("FK", "incident_id", "uuid"), ("FK", "user_id", "uuid"),
         ("", "from_status", "text"), ("", "to_status", "text"), ("", "comment", "text"),
@@ -85,7 +100,8 @@ def er(salida: Path):
     noti = tabla(ax, 80, 28, 27, "notifications", [
         ("PK", "id", "bigserial"), ("FK", "incident_id", "uuid"), ("FK", "user_id", "uuid"),
         ("", "channel", "text"), ("", "status", "text"), ("", "attempts", "int"),
-        ("", "sent_at", "timestamptz"), ("", "error", "text")])
+        ("", "sent_at", "timestamptz"), ("", "error", "text"),
+        ("", "created_at", "timestamptz"), ("", "destination", "text")])
     sh = tabla(ax, 40.5, 25, 25, "shifts", [
         ("PK", "id", "smallint"), ("", "name", "text"), ("", "starts_at", "time"),
         ("", "ends_at", "time")])
@@ -109,10 +125,10 @@ def er(salida: Path):
 
     # leyenda
     ax.add_patch(Rectangle((40.5, 5.5), 4, 1.8, fc="#2E75B6", ec=NAVY))
-    ax.text(45.3, 6.4, "tabla existente (migraciones 001 y 002)", fontsize=6.8, va="center")
+    ax.text(45.3, 6.4, "tabla existente (migraciones 001–003)", fontsize=6.8, va="center")
     ax.add_patch(Rectangle((40.5, 2.7), 4, 1.8, fc=NAVY, ec=NAVY))
-    ax.text(45.3, 3.6, "tabla nueva (migración 003, tarea 4.8)", fontsize=6.8, va="center")
-    ax.text(80, 4.5, "PK clave primaria · FK clave foránea · UQ único\n1 / N / 0..1: cardinalidad",
+    ax.text(45.3, 3.6, "tablas agregadas (004; cambios posteriores 005–007)", fontsize=6.8, va="center")
+    ax.text(80, 4.5, "PK clave primaria · FK clave foránea · UQ único\n1 / N / 0..1: cardinalidad · episode_id: UQ parcial",
             fontsize=6.6, va="center", color="#555555")
 
     fig.savefig(salida / "Diagrama_ER.png", dpi=200, bbox_inches="tight", facecolor="white")

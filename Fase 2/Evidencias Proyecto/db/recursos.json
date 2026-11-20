@@ -1,0 +1,37 @@
+{
+  "cameras": [
+    {
+      "id": "camara-01",
+      "name": "Camara 01 - Entrada norte",
+      "rtsp_url": "rtsp://192.168.50.10:554/stream1",
+      "location": "Entrada norte",
+      "active": true,
+      "last_frame_at": null,
+      "created_at": "2026-10-28T00:00:00+00:00"
+    }
+  ],
+  "zones": [
+    {
+      "id": "zona-norte",
+      "camera_id": "camara-01",
+      "name": "Zona Norte",
+      "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+      "suppression_s": 60,
+      "active": true
+    }
+  ],
+  "beacons": [
+    {
+      "id": "baliza-01",
+      "zone_id": "zona-norte",
+      "name": "Baliza Norte",
+      "ip": "127.0.0.1",
+      "duration_s": 10,
+      "sound": "siren",
+      "message": "USO OBLIGATORIO DE CASCO",
+      "online": false,
+      "battery_pct": null,
+      "last_seen_at": null
+    }
+  ]
+}

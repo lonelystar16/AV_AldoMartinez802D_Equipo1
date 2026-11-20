@@ -26,6 +26,8 @@ def escribir_env(tmp_path: Path, contenido: str) -> Path:
 
 def test_carga_env_lee_las_variables(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("EDGE_API_TOKEN", raising=False)
+    monkeypatch.delenv("CASCOVISION_STORAGE", raising=False)
+
     ruta = escribir_env(tmp_path, "EDGE_API_TOKEN=secreto\nCASCOVISION_STORAGE=postgres\n")
 
     config.cargar_env(ruta)
