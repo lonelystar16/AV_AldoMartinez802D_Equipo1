@@ -3,7 +3,7 @@
 **Sistema de detección automatizada de EPP mediante visión computacional**
 Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802D)
 
-> **Estado (S13):** MVP ejecutable de punta a punta con Docker Compose: cámara RTSP → agente Edge con YOLO26 → baliza zonal (simulada) → API REST con PostgreSQL → dashboard web con login y roles. Pendiente: firmware de la baliza real, SMS y correo, y reportes en PDF y Excel.
+> **Estado (S16, cierre de la Fase 2):** sistema ejecutable de punta a punta con Docker Compose: cámara RTSP o webcam → agente Edge con YOLO26 → baliza zonal (simulada o M5Stack StickS3) → API REST con PostgreSQL → dashboard web con login y roles, avisos por correo y reportes en PDF y Excel. El SMS quedó fuera de alcance. El modelo cumple el *recall* del RNF-05, pero no el mAP@0,5 ≥ 0,90; la desviación está documentada en [Modelo de detección](#modelo-de-detección).
 
 ---
 
@@ -13,7 +13,7 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 1. registra el incidente con evidencia fotográfica (rostros difuminados);
 2. activa una **baliza zonal** que emite una alerta sonora y visual en el mismo sector;
-3. notifica al prevencionista de riesgos por SMS y correo;
+3. notifica al prevencionista de riesgos por correo;
 4. muestra el incidente en un dashboard web con historial y reportes.
 
 **A quién va dirigido.** A empresas constructoras, en particular a los **prevencionistas de riesgos** y jefes de terreno.
@@ -30,7 +30,8 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 | Base de datos | PostgreSQL |
 | Frontend | React.js |
 | Alerta física | M5Stack StickS3 (ESP32-S3) · HTTP en la red local |
-| Notificaciones | Twilio (SMS) · SMTP (correo) |
+| Notificaciones | SMTP (correo); el SMS (RF-11) quedó fuera de alcance |
+| Reportes | PDF y Excel generados por la API |
 | Despliegue | Docker · Docker Compose (on-premise, sin nube) |
 
 ## Arquitectura
@@ -41,7 +42,7 @@ flowchart LR
     EDGE -->|POST /alert| BAL[Baliza zonal<br/>M5Stack StickS3]
     EDGE -->|evento + resultado de la alerta| API[API REST<br/>FastAPI]
     API --> DB[(PostgreSQL)]
-    API --> NOT[SMS / correo<br/>Twilio · SMTP]
+    API --> NOT[Correo<br/>SMTP]
     DASH[Dashboard web<br/>React] <--> API
 ```
 
@@ -70,8 +71,18 @@ docker compose ps
 | Dashboard | http://127.0.0.1:8080 | Entrar con `CASCOVISION_ADMIN_EMAIL` y `CASCOVISION_ADMIN_PASSWORD` |
 | API | http://127.0.0.1:8000/docs | Documentación interactiva de la API |
 | Baliza simulada | http://127.0.0.1:8081/health | `"alerting": true` mientras suena |
+| Correo de prueba (Mailpit) | http://127.0.0.1:8025 | Bandeja que recibe los avisos al prevencionista en el perfil `dev` |
 
-El perfil `dev` agrega una cámara RTSP que repite el video y una baliza simulada, así que todo el flujo corre en un solo PC. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
+El perfil `dev` agrega una cámara RTSP que repite el video, una baliza simulada y un servidor de correo de prueba, así que todo el flujo corre en un solo PC. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
+
+### Con la webcam y la baliza StickS3 (Windows)
+
+Para la demostración con equipos reales, dos scripts de PowerShell en `Fase 2/Evidencias Proyecto/scripts/` reemplazan la cámara y la baliza simuladas:
+
+1. **`conectar-stick.ps1`** configura por USB el Wi-Fi y la URL de la API en el StickS3. Toma la red Wi-Fi y la IP de la PC, y pide la clave solo si la red cambió. Antes, el Stick debe tener cargado el firmware de `src/firmware/baliza/` y una configuración inicial hecha con `src/firmware/configurador_nvs/`.
+2. **`iniciar-cascovision-camara.ps1`** detiene el agente Edge y la cámara simulada de Docker, levanta `db`, `api` y `dashboard` con `compose.yaml` y `compose.camera.yaml` y corre el agente en Windows sobre la cámara 1. La API lee la evidencia de la carpeta local `incidents/`.
+
+Los dos scripts leen los tokens desde el mismo `.env` de Docker.
 
 ## Ejecución sin Docker (desarrollo)
 
@@ -114,14 +125,16 @@ por debajo de 5.0 porque la 5.x eliminó `cv2.CascadeClassifier`, que usan los
 scripts de prueba. En un equipo sin GPU NVIDIA, hay que quitar el índice de
 PyTorch y dejar que se instale la variante de CPU.
 
-Con la cámara conectada:
+Con la cámara conectada, desde la carpeta del proyecto:
 
 ```bash
+cd "Fase 2/Evidencias Proyecto"
+
 # Monitoreo local, sin API
-uv run python "Yolo/modelamiento/monitoreo_v2.py"
+uv run python Yolo/modelamiento/monitoreo_v2.py
 
 # Agente Edge: reporta los incidentes a la API
-uv run python "Yolo/modelamiento/monitoreo_api.py"
+uv run python Yolo/modelamiento/monitoreo_api.py
 ```
 
 ## Modelo de detección
@@ -135,7 +148,7 @@ El detector actual (`train-10`) trabaja con **5 clases** (`helmet`, `no_helmet`,
 | ¿lleva casco? | P 1,000 · R 0,643 · E 0,643 | **P 0,986 · R 0,947 · E 0,934** |
 | ¿lleva chaleco? | P 0,951 · R 0,583 · E 0,566 | **P 1,000 · R 0,887 · E 0,887** |
 
-Con esto **el RNF-05 se cumple en las dos reglas de negocio** (recall ≥ 0,85); ninguna lo cumplía antes. El mAP@0,5 promedio queda en 0,877, por debajo del 0,90 del RNF-05, pero esa cifra no es comparable con la del modelo anterior: el dataset nuevo tiene 5 clases todas del producto, frente a las 11 del anterior (6 irrelevantes que hundían el promedio). El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
+Con esto **el RNF-05 se cumple en las dos reglas de negocio** (recall ≥ 0,85); ninguna lo cumplía antes. El mAP@0,5 promedio queda en 0,877, por debajo del 0,90 del RNF-05, pero esa cifra no es comparable con la del modelo anterior: el dataset nuevo tiene 5 clases todas del producto, frente a las 11 del anterior (6 irrelevantes que hundían el promedio). El reentrenamiento `train-11` (mixup 0,1) empató con `train-10`, y el 21-11-2026 la tarea se cerró con `train-10` como modelo final y la brecha del mAP@0,5 registrada como desviación. El proceso de modelado, el análisis de desempeño, la decisión de cierre y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
 
 La línea base `train-9` (11 clases) queda documentada como referencia histórica: mAP@0,5 = 0,624, con señales de sobreajuste entre entrenamiento y validación.
 
@@ -177,6 +190,10 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │   ├── Evidencias Individuales/    Diarios y autoevaluaciones de cada integrante
 │   └── Evidencias Proyecto/        Código y artefactos técnicos
 │       ├── .env.example            Variables de entorno de ejemplo
+│       ├── compose.yaml            Despliegue completo (perfil dev con simuladores y Mailpit)
+│       ├── compose.camera.yaml     Variante con el agente en Windows sobre la webcam
+│       ├── compose.train.yaml      Entrenamiento de YOLO26 con GPU NVIDIA
+│       ├── scripts/                Configuración del StickS3 por USB y arranque con webcam
 │       ├── src/
 │       │   ├── api/                API REST (FastAPI)
 │       │   ├── edge/               Agente Edge (visión computacional)
@@ -186,6 +203,8 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │       ├── models/                 Modelo YOLO26 entrenado, detector de rostros YuNet y métricas
 │       ├── db/migrations/          Esquema SQL de PostgreSQL
 │       ├── tests/                  Pruebas automatizadas
-│       └── docs/diagramas/         Diagramas UML y de arquitectura
-└── Fase 3/                         Presentación final
+│       └── docs/                   API, protocolo de la baliza, modelo de datos, Docker y diagramas UML
+└── Fase 3/
+    ├── Evidencias Grupales/        Video de demostración
+    └── Evidencias Individuales/    Diarios 3.1 y autoevaluaciones 3.2 de cada integrante
 ```
