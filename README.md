@@ -5,6 +5,18 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 > **Estado (S16, cierre de la Fase 2):** sistema ejecutable de punta a punta con Docker Compose: cámara RTSP o webcam → agente Edge con YOLO26 → baliza zonal (simulada o M5Stack StickS3) → API REST con PostgreSQL → dashboard web con login y roles, avisos por correo y reportes en PDF y Excel. El SMS quedó fuera de alcance. El modelo cumple el *recall* del RNF-05, pero no el mAP@0,5 ≥ 0,90; la desviación está documentada en [Modelo de detección](#modelo-de-detección).
 
+## Cómo revisar este repositorio
+
+Las evidencias están ordenadas por fase. Cada carpeta tiene un `README.md` que indica qué entregable es cada archivo:
+
+| Fase | Contenido | Índice |
+| --- | --- | --- |
+| Fase 1 · Definición | Guía de definición del proyecto, presentación, autoevaluaciones y diarios 1.1 a 1.3 | [Fase 1/README.md](Fase%201/README.md) |
+| Fase 2 · Desarrollo | Guías 2.4 y 2.6, documentos D1 a D3, carta Gantt, diarios y autoevaluaciones 2.1 y 2.2, y el código del sistema | [Fase 2/README.md](Fase%202/README.md) |
+| Fase 3 · Presentación | Presentación final, video de la demo, plan B, diarios 3.1 y autoevaluaciones 3.2 | [Fase 3/README.md](Fase%203/README.md) |
+
+El código está en [`Fase 2/Evidencias Proyecto/`](Fase%202/Evidencias%20Proyecto/). La forma de levantarlo está más abajo, en [Ejecución con Docker](#ejecución-con-docker-recomendada).
+
 ---
 
 ## Descripción
@@ -86,7 +98,7 @@ Los dos scripts leen los tokens desde el mismo `.env` de Docker.
 
 ## Ejecución sin Docker (desarrollo)
 
-Requisitos: Python **3.12** con [uv](https://docs.astral.sh/uv/) y, para el dashboard, Node 22. Desde la raíz del repositorio:
+Requisitos: Python **3.12** con [uv](https://docs.astral.sh/uv/) y, para el dashboard, Node 22. La [guía de uv](Fase%202/Evidencias%20Proyecto/docs/GUIA_UV.md) explica la instalación paso a paso en Windows. Desde la raíz del repositorio:
 
 ```bash
 uv sync --group dev
@@ -184,10 +196,15 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 ## Estructura del repositorio
 
 ```
-├── Fase 1/                         Evidencias de la definición del proyecto
-├── Fase 2/
-│   ├── Evidencias Grupales/        D1 SRS · carta Gantt · D2 Diseño · D3 Pruebas · D4 Manual técnico
-│   ├── Evidencias Individuales/    Diarios y autoevaluaciones de cada integrante
+├── README.md                       Este archivo
+├── pyproject.toml · uv.lock        Dependencias de Python, gestionadas con uv
+├── .github/workflows/tests.yml     CI: pruebas con PostgreSQL y compilación del dashboard en cada PR
+├── Fase 1/                         Definición del proyecto (índice en Fase 1/README.md)
+│   ├── Evidencias Grupales/        Guía 1.5, formativa 1.4, presentación y planilla de evaluación
+│   └── Evidencias Individuales/    Autoevaluaciones y diarios 1.1 a 1.3 de cada integrante
+├── Fase 2/                         Desarrollo del proyecto (índice en Fase 2/README.md)
+│   ├── Evidencias Grupales/        Guías 2.4 y 2.6 · D1 SRS · carta Gantt · D2 Diseño · D3 Pruebas (el D4 está en preparación)
+│   ├── Evidencias Individuales/    Diarios 2.1 y autoevaluaciones 2.2 de cada integrante
 │   └── Evidencias Proyecto/        Código y artefactos técnicos
 │       ├── .env.example            Variables de entorno de ejemplo
 │       ├── compose.yaml            Despliegue completo (perfil dev con simuladores y Mailpit)
@@ -199,12 +216,12 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │       │   ├── edge/               Agente Edge (visión computacional)
 │       │   ├── dashboard/          Dashboard web (React)
 │       │   └── firmware/           Firmware de la baliza zonal
-│       ├── Yolo/                   Entrenamiento, motor de detección y agente Edge (provisional)
+│       ├── Yolo/                   Entrenamiento, evaluación y exportación del modelo, motor de detección y scripts de monitoreo
 │       ├── models/                 Modelo YOLO26 entrenado, detector de rostros YuNet y métricas
 │       ├── db/migrations/          Esquema SQL de PostgreSQL
 │       ├── tests/                  Pruebas automatizadas
-│       └── docs/                   API, protocolo de la baliza, modelo de datos, Docker y diagramas UML
-└── Fase 3/
+│       └── docs/                   API, protocolo de la baliza, modelo de datos, Docker, guía de uv y diagramas UML
+└── Fase 3/                         Presentación y defensa (índice en Fase 3/README.md)
     ├── Evidencias Grupales/        Presentación final, video de demostración y plan B de la demo
     └── Evidencias Individuales/    Diarios 3.1 y autoevaluaciones 3.2 de cada integrante
 ```
