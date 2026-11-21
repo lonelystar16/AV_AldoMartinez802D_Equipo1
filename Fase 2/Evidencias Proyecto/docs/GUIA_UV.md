@@ -9,6 +9,9 @@ a la combinación `pip` + `venv` + `requirements.txt`: el entorno queda
 declarado en `pyproject.toml`, las versiones exactas quedan fijadas en
 `uv.lock`, y el entorno virtual se crea y se mantiene solo.
 
+> `pyproject.toml` y `uv.lock` están en la raíz del repositorio. Todos los
+> comandos `uv` de esta guía se ejecutan desde ahí, no desde esta carpeta.
+
 ---
 
 ## 1. Instalar uv en Windows 

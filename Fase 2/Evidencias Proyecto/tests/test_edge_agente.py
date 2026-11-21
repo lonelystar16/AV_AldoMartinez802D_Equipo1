@@ -155,11 +155,14 @@ def test_solo_avisa_de_quien_esta_dentro_de_la_zona() -> None:
     dentro, epp_dentro = _persona_sin_epp(1, 10, 140)      # pies en x = 0,25
     fuera, epp_fuera = _persona_sin_epp(2, 170, 290)       # pies en x = 0,77
     escena = ([dentro, fuera], epp_dentro + epp_fuera, True)
-    monitor = ZonalPrueba(agente.Zona([[0, 0], [0.5, 0], [0.5, 1], [0, 1]]), [escena, escena])
+    monitor = ZonalPrueba(
+        agente.Zona([[0, 0], [0.5, 0], [0.5, 1], [0, 1]]),
+        [escena] * 4,
+    )
     frame = np.zeros((400, 300, 3), dtype=np.uint8)
 
-    monitor.procesar(frame)
-    monitor.procesar(frame)  # el motor confirma la infracción en el segundo cuadro
+    for _ in range(4):
+        monitor.procesar(frame)  # el motor confirma tras cuatro cuadros consecutivos
 
     assert [(a["event"], a["person_track_id"]) for a in monitor.avisos] == [("inicio", 1)]
 
