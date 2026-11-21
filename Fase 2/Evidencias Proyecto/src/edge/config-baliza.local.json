@@ -1,0 +1,30 @@
+{
+    "camera_id":  "camara-01",
+    "zone_id":  "zona-norte",
+    "zone_name":  "Zona Norte",
+    "fuente":  "0",
+    "poligono":  [
+                     [
+                         0.0,
+                         0.0
+                     ],
+                     [
+                         1.0,
+                         0.0
+                     ],
+                     [
+                         1.0,
+                         1.0
+                     ],
+                     [
+                         0.0,
+                         1.0
+                     ]
+                 ],
+    "baliza":  {
+                   "url":  "",
+                   "duracion_s":  10
+               },
+    "api":  "http://127.0.0.1:8000",
+    "carpeta_datos":  "edge-datos"
+}

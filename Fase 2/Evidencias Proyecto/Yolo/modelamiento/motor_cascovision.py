@@ -89,7 +89,7 @@ SOLAPAMIENTO_MIN = 0.35
 UMBRAL_EPP_CUBRE_PERSONA = 0.7
 
 VENTANA_SUAVIZADO = 5
-MIN_FRAMES_PARA_ALERTAR = 4
+MIN_FRAMES_PARA_ALERTAR = 2
 FRAME_PARA_DESCARTAR = 45
 
 # La deteccion de 'Person' parpadea (gafas, sombra, perfil) y ByteTrack reparte
@@ -264,10 +264,12 @@ def solapamiento(caja, contenedor):
     return (ix * iy) / area
 
 
-def mejor_de_par(candidatos):
-    """Resuelve el conflicto helmet/no_helmet (o vest/no_vest) por confianza."""
+def mejor_de_par(candidatos, clase_positiva):
+    """Si hay conflicto, una detección del EPP puesto evita acusarlo de falta."""
     if not candidatos:
         return None
+    if any(e["nombre"] == clase_positiva for e in candidatos):
+        return clase_positiva
     return max(candidatos, key=lambda e: e["conf"])["nombre"]
 
 
@@ -295,8 +297,8 @@ def evaluar_persona(parte):
         elif e["nombre"] in ("vest", "no_vest"):
             pares["chaleco"].append(e)
 
-    casco = mejor_de_par(pares["casco"])
-    chaleco = mejor_de_par(pares["chaleco"])
+    casco = mejor_de_par(pares["casco"], "helmet")
+    chaleco = mejor_de_par(pares["chaleco"], "vest")
 
     estados = []
     if casco is None:

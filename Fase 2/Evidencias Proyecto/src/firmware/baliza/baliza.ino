@@ -13,9 +13,10 @@ namespace {
 constexpr uint32_t REINTENTO_WIFI_MS = 5000;
 constexpr uint32_t INTERVALO_ESTADO_API_MS = 30000;
 constexpr size_t MAX_CUERPO = 1024;
+constexpr size_t MAX_COMANDO_USB = 384;
 constexpr size_t MAX_LOG_LOCAL_BYTES = 4096;
 constexpr size_t ALERTAS_RECIENTES = 8;
-constexpr char VERSION_FIRMWARE[] = "1.0.0";
+constexpr char VERSION_FIRMWARE[] = "1.0.1";
 constexpr char ARCHIVO_LOG_LOCAL[] = "/errores_baliza.txt";
 
 Preferences preferencias;
@@ -38,8 +39,11 @@ size_t largoCuerpoEsperado = 0;
 bool alertando = false;
 bool sonidoSilenciado = false;
 bool apiDisponible = false;
+bool rutaBalizaDisponible = false;
 bool bdDisponible = false;
 bool estadoServiciosConsultado = false;
+int codigoApiHttp = 0;
+int codigoRutaBalizaHttp = 0;
 String sonidoAlerta;
 String idAlertaActual;
 String idsRecientes[ALERTAS_RECIENTES];
@@ -51,6 +55,9 @@ uint8_t faseSirena = 0;
 uint32_t ultimoIntentoWifi = 0;
 uint32_t inicioWifi = 0;
 uint32_t ultimoChequeoApi = 0;
+char comandoUsb[MAX_COMANDO_USB];
+size_t largoComandoUsb = 0;
+bool comandoUsbExcedido = false;
 
 void mostrar(const char *linea1, const char *linea2 = "",
              const char *linea3 = "") {
@@ -61,6 +68,187 @@ void mostrar(const char *linea1, const char *linea2 = "",
   M5.Display.println(linea1);
   M5.Display.println(linea2);
   M5.Display.println(linea3);
+}
+
+void responderUsb(JsonDocument &respuesta) {
+  Serial.print("CVCFG:");
+  serializeJson(respuesta, Serial);
+  Serial.println();
+}
+
+void errorUsb(const char *codigo) {
+  StaticJsonDocument<96> respuesta;
+  respuesta["ok"] = false;
+  respuesta["error"] = codigo;
+  responderUsb(respuesta);
+}
+
+void estadoUsb() {
+  StaticJsonDocument<256> respuesta;
+  respuesta["ok"] = true;
+  respuesta["configured"] = configuracionValida;
+  respuesta["ssid"] = wifiSsid;
+  respuesta["api_url"] = apiUrl;
+  respuesta["wifi_connected"] = configuracionValida && WiFi.status() == WL_CONNECTED;
+  respuesta["api_ok"] = apiDisponible;
+  respuesta["api_beacon_ok"] = rutaBalizaDisponible;
+  respuesta["database_ok"] = bdDisponible;
+  respuesta["api_http"] = codigoApiHttp;
+  respuesta["beacon_health_http"] = codigoRutaBalizaHttp;
+  responderUsb(respuesta);
+}
+
+void configurarUsb(JsonObjectConst orden) {
+  if (!configuracionValida) {
+    errorUsb("initial_setup_required");
+    return;
+  }
+  if (alertando) {
+    errorUsb("alert_in_progress");
+    return;
+  }
+
+  const char *ssidValor = orden["ssid"].as<const char *>();
+  const char *apiValor = orden["api_url"].as<const char *>();
+  if (!ssidValor || !apiValor) {
+    errorUsb("missing_field");
+    return;
+  }
+
+  String nuevoSsid(ssidValor);
+  String nuevaApi(apiValor);
+  while (nuevaApi.endsWith("/")) nuevaApi.remove(nuevaApi.length() - 1);
+  if (nuevoSsid.isEmpty() || nuevoSsid.length() > 32) {
+    errorUsb("invalid_ssid");
+    return;
+  }
+  if (!nuevaApi.startsWith("http://") || nuevaApi.length() <= 7 ||
+      nuevaApi.length() > 63 ||
+      nuevaApi.indexOf(' ') >= 0 || nuevaApi.indexOf('\\') >= 0) {
+    errorUsb("invalid_api_url");
+    return;
+  }
+
+  JsonVariantConst passwordValor = orden["password"];
+  const bool passwordProvista = !passwordValor.isNull();
+  String nuevaPassword = wifiPassword;
+  if (passwordProvista) {
+    if (!passwordValor.is<const char *>()) {
+      errorUsb("invalid_password");
+      return;
+    }
+    nuevaPassword = passwordValor.as<String>();
+    if (nuevaPassword.length() < 8 || nuevaPassword.length() > 63) {
+      errorUsb("invalid_password");
+      return;
+    }
+  } else if (nuevoSsid != wifiSsid) {
+    errorUsb("password_required");
+    return;
+  }
+
+  const String ssidAnterior = wifiSsid;
+  const String passwordAnterior = wifiPassword;
+  const String apiAnterior = apiUrl;
+  if (!preferencias.begin("baliza", false)) {
+    errorUsb("nvs_unavailable");
+    return;
+  }
+  bool guardado = preferencias.putString("wifi_ssid", nuevoSsid) > 0;
+  if (passwordProvista) {
+    guardado = preferencias.putString("wifi_password", nuevaPassword) > 0 && guardado;
+  }
+  guardado = preferencias.putString("api_url", nuevaApi) > 0 && guardado;
+  const bool verificado = guardado &&
+                          preferencias.getString("wifi_ssid", "") == nuevoSsid &&
+                          preferencias.getString("wifi_password", "") == nuevaPassword &&
+                          preferencias.getString("api_url", "") == nuevaApi;
+  if (!verificado) {
+    preferencias.putString("wifi_ssid", ssidAnterior);
+    preferencias.putString("wifi_password", passwordAnterior);
+    preferencias.putString("api_url", apiAnterior);
+    preferencias.end();
+    nuevaPassword = "";
+    errorUsb("nvs_write_failed");
+    return;
+  }
+  preferencias.end();
+
+  const bool reconectarWifi = nuevoSsid != wifiSsid || passwordProvista;
+  wifiSsid = nuevoSsid;
+  wifiPassword = nuevaPassword;
+  apiUrl = nuevaApi;
+  apiDisponible = false;
+  rutaBalizaDisponible = false;
+  bdDisponible = false;
+  estadoServiciosConsultado = false;
+  codigoApiHttp = 0;
+  codigoRutaBalizaHttp = 0;
+  ultimoChequeoApi = 0;
+
+  StaticJsonDocument<160> respuesta;
+  respuesta["ok"] = true;
+  respuesta["status"] = "saved";
+  respuesta["reconnecting"] = reconectarWifi;
+  respuesta["api_url"] = apiUrl;
+  responderUsb(respuesta);
+
+  nuevaPassword = "";
+  if (reconectarWifi) {
+    servidor.stop();
+    servidorIniciado = false;
+    pantallaEnLinea = false;
+    pantallaSinWifi = false;
+    mostrar("Wi-Fi actualizado", "Reconectando...");
+    WiFi.disconnect(false, false);
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+    ultimoIntentoWifi = millis();
+    inicioWifi = ultimoIntentoWifi;
+  }
+}
+
+void procesarOrdenUsb(char *linea, size_t largo) {
+  StaticJsonDocument<384> ordenJson;
+  if (deserializeJson(ordenJson, linea, largo) || !ordenJson.is<JsonObject>()) {
+    errorUsb("invalid_json");
+    return;
+  }
+  const char *comando = ordenJson["cmd"].as<const char *>();
+  if (!comando) {
+    errorUsb("missing_command");
+  } else if (!strcmp(comando, "status")) {
+    estadoUsb();
+  } else if (!strcmp(comando, "configure")) {
+    configurarUsb(ordenJson.as<JsonObjectConst>());
+  } else {
+    errorUsb("unknown_command");
+  }
+}
+
+void procesarConfiguracionUsb() {
+  while (Serial.available()) {
+    const int recibido = Serial.read();
+    if (recibido == '\r') continue;
+    if (recibido == '\n') {
+      if (comandoUsbExcedido) {
+        errorUsb("command_too_large");
+      } else if (largoComandoUsb > 0) {
+        comandoUsb[largoComandoUsb] = '\0';
+        procesarOrdenUsb(comandoUsb, largoComandoUsb);
+      }
+      memset(comandoUsb, 0, sizeof(comandoUsb));
+      largoComandoUsb = 0;
+      comandoUsbExcedido = false;
+    } else if (!comandoUsbExcedido) {
+      if (largoComandoUsb < sizeof(comandoUsb) - 1) {
+        comandoUsb[largoComandoUsb++] = static_cast<char>(recibido);
+      } else {
+        memset(comandoUsb, 0, sizeof(comandoUsb));
+        largoComandoUsb = 0;
+        comandoUsbExcedido = true;
+      }
+    }
+  }
 }
 
 bool cargarConfiguracion() {
@@ -241,9 +429,9 @@ bool violacionValida(const char *valor) {
 }
 
 String textoEpp(const bool casco, const bool chaleco) {
-  if (casco && chaleco) return "SIN CASCO Y CHALECO";
-  if (casco) return "SIN CASCO";
-  return "SIN CHALECO";
+  if (casco && chaleco) return "FALTA CASCO Y CHALECO";
+  if (casco) return "FALTA CASCO";
+  return "FALTA CHALECO";
 }
 
 void mostrarAlerta(const String &nombreZona, const String &mensaje,
@@ -467,10 +655,18 @@ void mostrarEnLinea() {
   M5.Display.printf("IP: %s\n", WiFi.localIP().toString().c_str());
   M5.Display.printf("Bateria: %d%%\n", M5.Power.getBatteryLevel());
   M5.Display.printf("RSSI: %d dBm\n", WiFi.RSSI());
-  M5.Display.printf("API: %s\n", !estadoServiciosConsultado ? "consultando" :
+  M5.Display.printf("API Docker: %s\n", !estadoServiciosConsultado ? "consultando" :
                     apiDisponible ? "OK" : "ERROR");
-  M5.Display.printf("BD: %s\n", !estadoServiciosConsultado ? "consultando" :
-                    !apiDisponible ? "sin dato" : bdDisponible ? "OK" : "ERROR");
+  String estadoRuta = "consultando";
+  if (estadoServiciosConsultado) {
+    if (!apiDisponible) estadoRuta = "sin API";
+    else if (rutaBalizaDisponible) estadoRuta = "OK";
+    else if (codigoRutaBalizaHttp > 0) estadoRuta = "HTTP " + String(codigoRutaBalizaHttp);
+    else estadoRuta = "sin respuesta";
+  }
+  M5.Display.printf("Ruta baliza: %s\n", estadoRuta.c_str());
+  M5.Display.printf("BD: %s\n", !rutaBalizaDisponible ? "sin dato" :
+                    bdDisponible ? "OK" : "ERROR");
 }
 
 void guardarLogLocal(const String &mensaje) {
@@ -525,43 +721,78 @@ void enviarLogsPendientes() {
 }
 
 void consultarEstadoServicios() {
+  bool apiNueva = false;
+  bool rutaBalizaNueva = false;
+  bool bdNueva = false;
+  String error;
+
+  // El ESP32 no resuelve el DNS interno de Compose: apiUrl debe ser la IP LAN del PC.
   WiFiClient cliente;
   HTTPClient http;
   http.setTimeout(2000);
-  const String ruta = apiUrl + "/edge/beacons/" + beaconId + "/health";
+  const String ruta = apiUrl + "/health";
   const bool iniciado = http.begin(cliente, ruta);
   int codigo = -1;
-  String error;
   if (!iniciado) {
-    error = "No se pudo iniciar la consulta de estado de la API.";
+    error = "No se pudo iniciar la consulta de la API Docker.";
   } else {
-    http.addHeader("Authorization", "Bearer " + token);
     codigo = http.GET();
   }
-  bool apiNueva = false;
-  bool bdNueva = false;
+  codigoApiHttp = codigo;
   if (codigo == HTTP_CODE_OK) {
-    StaticJsonDocument<256> estado;
-    if (!deserializeJson(estado, http.getString()) && estado["api"] == "ok") {
+    StaticJsonDocument<192> estado;
+    if (!deserializeJson(estado, http.getString()) && estado["status"] == "ok") {
       apiNueva = true;
-      bdNueva = estado["database"] == "ok";
-      if (!bdNueva) error = "API disponible; PostgreSQL no responde.";
     } else {
-      error = "La API devolvio un estado invalido.";
+      error = "La API Docker devolvio un estado invalido.";
     }
   } else if (iniciado) {
-    error = "Error al consultar la API; HTTP " + String(codigo) + ".";
+    error = "La API Docker no respondio; HTTP " + String(codigo) + ".";
   }
   if (iniciado) http.end();
 
+  if (apiNueva) {
+    WiFiClient clienteBaliza;
+    HTTPClient httpBaliza;
+    httpBaliza.setTimeout(2000);
+    const String rutaBaliza = apiUrl + "/edge/beacons/" + beaconId + "/health";
+    const bool consultaIniciada = httpBaliza.begin(clienteBaliza, rutaBaliza);
+    int codigo = -1;
+    if (consultaIniciada) {
+      httpBaliza.addHeader("Authorization", "Bearer " + token);
+      codigo = httpBaliza.GET();
+    }
+    codigoRutaBalizaHttp = codigo;
+    if (codigo == HTTP_CODE_OK) {
+      StaticJsonDocument<256> estado;
+      if (!deserializeJson(estado, httpBaliza.getString()) && estado["api"] == "ok") {
+        rutaBalizaNueva = true;
+        bdNueva = estado["database"] == "ok";
+        if (!bdNueva) error = "API Docker OK; PostgreSQL no responde.";
+      } else {
+        error = "La ruta autenticada de baliza devolvio un estado invalido.";
+      }
+    } else if (consultaIniciada) {
+      error = "API Docker OK; ruta de baliza HTTP " + String(codigo) + ".";
+    } else {
+      error = "API Docker OK; no se pudo iniciar la ruta de baliza.";
+    }
+    if (consultaIniciada) httpBaliza.end();
+  } else {
+    codigoRutaBalizaHttp = 0;
+  }
+
   const bool cambio = !estadoServiciosConsultado ||
                       apiNueva != apiDisponible || bdNueva != bdDisponible;
-  const bool recuperado = estadoServiciosConsultado && apiNueva && bdNueva &&
-                          (!apiDisponible || !bdDisponible);
+  const bool rutaCambio = rutaBalizaNueva != rutaBalizaDisponible;
+  const bool recuperado = estadoServiciosConsultado && apiNueva &&
+                          rutaBalizaNueva && bdNueva &&
+                          (!apiDisponible || !rutaBalizaDisponible || !bdDisponible);
   apiDisponible = apiNueva;
+  rutaBalizaDisponible = rutaBalizaNueva;
   bdDisponible = bdNueva;
   estadoServiciosConsultado = true;
-  if (cambio && !error.isEmpty()) guardarLogLocal(error);
+  if ((cambio || rutaCambio) && !error.isEmpty()) guardarLogLocal(error);
   if (recuperado) guardarLogLocal("API y PostgreSQL recuperados.");
   if (apiDisponible) enviarLogsPendientes();
   if (!alertando && pantallaEnLinea) mostrarEnLinea();
@@ -602,6 +833,7 @@ void setup() {
 }
 
 void loop() {
+  procesarConfiguracionUsb();
   M5.update();
   if (alertando && M5.BtnA.wasPressed()) {
     sonidoSilenciado = true;

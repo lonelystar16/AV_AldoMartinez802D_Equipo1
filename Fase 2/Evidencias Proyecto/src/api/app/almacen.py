@@ -60,6 +60,8 @@ class Almacen(Protocol):
         self, beacon_id: str, estado: dict[str, Any]
     ) -> dict[str, Any] | None: ...
 
+    def actualizar_ip_beacon(self, beacon_id: str, ip: str) -> None: ...
+
     # Alta o edición desde el dashboard (CU-09, CU-10): crea si no existe.
     def guardar_camara(self, datos: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -271,6 +273,15 @@ class AlmacenJSON:
         datos["beacons"] = beacons
         self._guardar_recursos(datos)
         return actualizada
+
+    def actualizar_ip_beacon(self, beacon_id: str, ip: str) -> None:
+        datos = self._cargar_recursos()
+        for baliza in datos.get("beacons", []):
+            if baliza.get("id") == beacon_id:
+                if baliza.get("ip") != ip:
+                    baliza["ip"] = ip
+                    self._guardar_recursos(datos)
+                return
 
     # Como los usuarios: las claves foráneas y únicas las garantiza la base.
     def guardar_camara(self, datos: dict[str, Any]) -> dict[str, Any]:
@@ -818,6 +829,12 @@ class AlmacenPostgres:
             ),
         )
         return _baliza_desde_fila(filas[0]) if filas else None
+
+    def actualizar_ip_beacon(self, beacon_id: str, ip: str) -> None:
+        self._ejecutar(
+            "UPDATE beacons SET ip = %s WHERE id = %s AND ip IS DISTINCT FROM %s",
+            (ip, beacon_id, ip),
+        )
 
     # No hay DELETE: los incidentes apuntan a cámaras y zonas, y borrarlas
     # rompería el historial. Se desactivan con `active = false`.

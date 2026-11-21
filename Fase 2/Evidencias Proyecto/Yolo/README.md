@@ -13,7 +13,9 @@
 > entregado es [`models/cascovision_yolo26s.pt`](../models/). La sección 3.5
 > recoge sus métricas y la comparación con la línea base `train-9`. El
 > reentrenamiento `train-11` (mixup 0,1, 05-11-2026) empató con `train-10` y no
-> lo reemplazó (ver 3.5).
+> lo reemplazó (ver 3.5). La tarea 4.2 se cerró el 21-11-2026 con `train-10`
+> como modelo final: cumple el *recall* del RNF-05 en las dos reglas, pero no el
+> mAP@0,5 ≥ 0,90, que queda como desviación documentada.
 
 ---
 
@@ -347,6 +349,36 @@ en validación, así que el sobreajuste no era la única causa. **Se mantiene
 los dos cumplen el *recall* ≥ 0,85 por regla. La corrida queda en
 `Yolo/runs/detect/train-11/` (no versionada).
 
+#### Cierre de la tarea 4.2 con desviación (21-11-2026)
+
+La tarea 4.2 se cierra con `train-10` como modelo final, y queda registrada una
+desviación respecto del RNF-05:
+
+| Criterio del RNF-05 | Obtenido (`train-10`, prueba) | Estado |
+| --- | --- | --- |
+| *Recall* de la regla de casco ≥ 0,85 | 0,947 | cumple |
+| *Recall* de la regla de chaleco ≥ 0,85 | 0,887 | cumple |
+| mAP@0,5 ≥ 0,90 | 0,877 (0,851 en validación) | **desviación** |
+
+Razones para cerrar la tarea sin una nueva corrida:
+
+1. **Dos corridas seguidas tocaron el mismo techo.** `train-10` y `train-11`
+   quedaron en ~0,85 de mAP@0,5 en validación. Bajar el sobreajuste con mixup
+   no movió ese techo, así que otra corrida con el mismo dataset no tiene una
+   hipótesis que la respalde.
+2. **El criterio que importa para el producto se cumple.** La alerta se decide
+   por regla y no por clase. Con una precisión de ~0,99 en las dos reglas, casi
+   no hay falsas acusaciones, y el *recall* supera el umbral.
+3. **El costo no cabe en el plazo.** Cada corrida toma ~4,5 h en la única GPU
+   disponible (RTX 3060 Laptop) y quedan dos semanas para la defensa.
+
+Esta brecha se mitiga en producción de dos maneras. El motor confirma una
+infracción solo si se repite en varios cuadros de una ventana de cinco
+(`MIN_FRAMES_PARA_ALERTAR`). Además, el prevencionista puede marcar los falsos
+positivos desde el dashboard. Si el proyecto continúa, la línea de
+trabajo sigue siendo la de la sección anterior: más ejemplos de `no_vest` e
+imágenes propias de faena.
+
 ### 3.4 Diagnóstico: sobreajuste
 
 Las pérdidas de entrenamiento bajan durante el entrenamiento, pero las de
@@ -442,6 +474,55 @@ uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_v2.py"
 uv run uvicorn app.main:app --app-dir "Fase 2/Evidencias Proyecto/src/api" --reload
 uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_api.py"
 ```
+
+### Desde un archivo o un enlace remoto
+
+`monitoreo_video.py` acepta ademas una ruta de video o una URL, y reporta a la
+API igual que el agente Edge:
+
+```bash
+# Archivo local
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" video.mp4
+
+# URL directa de video (mp4, m3u8, rtsp): se transmite sin descargar
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" "https://ejemplo.com/a.mp4"
+
+# Enlace de una pagina (YouTube y demas): yt-dlp lo resuelve al stream
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" "https://youtube.com/watch?v=..."
+
+# Sin API: solo ventana y evidencia local
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" --sin-api video.mp4
+```
+
+Los enlaces de pagina necesitan `yt-dlp` (`uv sync --group dev --group yolo`).
+Si OpenCV no puede leer el stream resuelto, el script baja el archivo a un
+temporal y procesa ese; los streams en vivo (`rtsp://`, `rtmp://`) no se
+descargan.
+
+Los cuatro scripts de monitoreo pintan en cada cuadro su meta de 30 FPS
+(`FPS 28.4 | meta 30 | OK`) y resumen al salir. La metrica cronometra solo
+`MonitorEPP.procesar()`, no el pintado de la ventana; ver `rendimiento.py`.
+
+### Modelo y meta de 30 FPS
+
+Los cuatro scripts aceptan `--modelo {auto,onnx,pt}`, con `auto` por defecto.
+`auto` es el comportamiento de siempre: el motor elige, y prefiere el `.onnx`.
+
+Conviene poder forzar el `.pt`, porque de ahi depende si la meta se alcanza en
+una maquina concreta. Si el provider CUDA de ONNX Runtime no carga (le faltan
+cuDNN y CUDA), el `.onnx` cae a CPU y no llega; el `.pt` usa la GPU de PyTorch:
+
+```bash
+# .pt sobre la GPU: 48.7 FPS, CUMPLE
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" --modelo pt video.mp4
+
+# auto (.onnx sobre CPU): 11.2 FPS, NO CUMPLE
+uv run python "Fase 2/Evidencias Proyecto/Yolo/modelamiento/monitoreo_video.py" --modelo auto video.mp4
+```
+
+Los primeros 10 cuadros quedan apartados del calculo: arrastran la carga del
+modelo y la inicializacion de la GPU, que no se repite. Contarlos hundiria el
+promedio de una corrida que si sostiene la meta.
 
 Presionar `q` en la ventana de video para finalizar.
 

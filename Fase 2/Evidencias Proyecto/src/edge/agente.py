@@ -269,6 +269,25 @@ def aplicar_configuracion_remota(cfg: dict, remota: dict) -> None:
     cfg["baliza"].setdefault("duracion_s", baliza.get("duration_s", 10))
 
 
+def refrescar_url_baliza(baliza: "ClienteBaliza", remota: dict | None,
+                         url_local: str | None) -> bool:
+    """Actualiza la dirección desde la API, excepto si el sitio fijó una URL."""
+    if remota is None or url_local:
+        return False
+    beacon = remota.get("beacon") or {}
+    ip = beacon.get("ip")
+    if not ip:
+        return False
+    host = f"[{ip}]" if ":" in ip else ip
+    url = f"http://{host}"
+    if baliza.url == url:
+        return False
+    baliza.url = url
+    baliza.en_linea = True
+    baliza.fallos = 0
+    return True
+
+
 def recargar_zona(monitor: "MonitorZonal", baliza: "ClienteBaliza", cfg: dict,
                   remota: dict | None) -> bool:
     """Aplica la zona que el administrador cambió en el dashboard (CU-09, paso 5).
@@ -361,6 +380,7 @@ def main() -> None:
     args = opciones.parse_args()
 
     cfg = json.loads(args.config.read_text(encoding="utf-8"))
+    url_baliza_local = cfg.get("baliza", {}).get("url")
     # `api` y `carpeta_datos` son de esta máquina y tienen que quedar leídos
     # del JSON: sin la URL de la API no se le puede preguntar nada. La cámara,
     # la zona y el polígono, en cambio, los administra el dashboard y salen
@@ -417,6 +437,8 @@ def main() -> None:
                 ultimo_latido = ahora
                 # Sin respuesta de la API se sigue con lo último conocido.
                 nueva = _configuracion_remota(cfg, os.getenv("EDGE_API_TOKEN", ""))
+                if refrescar_url_baliza(baliza, nueva, url_baliza_local):
+                    print(f"  IP de baliza actualizada desde API · {baliza.url}")
                 if recargar_zona(monitor, baliza, cfg, nueva):
                     print(f"  Zona actualizada desde la API · {cfg['zone_name']}")
                 if nueva is not None:

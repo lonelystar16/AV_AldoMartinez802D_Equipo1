@@ -1,0 +1,9 @@
+# El agente corre en Windows en el modo de webcam; la API en Docker debe leer
+# las mismas evidencias que ese proceso escribe en la carpeta local incidents/.
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ./incidents
+        target: /app/Fase 2/Evidencias Proyecto/incidents
+        read_only: true
