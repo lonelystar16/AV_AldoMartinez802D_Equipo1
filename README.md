@@ -205,6 +205,6 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │       ├── tests/                  Pruebas automatizadas
 │       └── docs/                   API, protocolo de la baliza, modelo de datos, Docker y diagramas UML
 └── Fase 3/
-    ├── Evidencias Grupales/        Video de demostración
+    ├── Evidencias Grupales/        Presentación final, video de demostración y plan B de la demo
     └── Evidencias Individuales/    Diarios 3.1 y autoevaluaciones 3.2 de cada integrante
 ```
