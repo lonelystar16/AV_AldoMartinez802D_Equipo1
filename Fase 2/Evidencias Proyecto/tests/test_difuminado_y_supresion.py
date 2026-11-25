@@ -924,7 +924,9 @@ def test_un_parpadeo_no_parte_la_infraccion_en_dos_registros() -> None:
     con_persona = ([_persona(3)], _sin_epp(), True)
     sin_persona = ([], _sin_epp(), True)
     vuelve = ([_persona(21)], _sin_epp(), True)
-    escenas = [con_persona] * 3 + [sin_persona] * 50 + [vuelve] * 3
+    escenas = ([con_persona] * mc.MIN_FRAMES_PARA_ALERTAR
+               + [sin_persona] * 50
+               + [vuelve] * mc.MIN_FRAMES_PARA_ALERTAR)
     motor = MotorPrueba(escenas)
 
     for _ in escenas:
@@ -947,7 +949,9 @@ def test_hueco_corto_de_difuminado_no_abre_un_segundo_registro() -> None:
     con_persona = ([_persona(3)], _sin_epp(), True)
     sin_persona = ([], _sin_epp(), True)
     vuelve = ([_persona(21, (105, 55, 205, 305))], _sin_epp(), True)
-    escenas = [con_persona] * 3 + [sin_persona] * 3 + [vuelve] * 3
+    escenas = ([con_persona] * mc.MIN_FRAMES_PARA_ALERTAR
+               + [sin_persona] * 3
+               + [vuelve] * mc.MIN_FRAMES_PARA_ALERTAR)
     motor = MotorPrueba(escenas)
 
     for _ in escenas:

@@ -13,7 +13,7 @@ Desde `Fase 2/Evidencias Proyecto`:
 ```bash
 cp .env.example .env        # en PowerShell: Copy-Item .env.example .env
 # editar .env: cambiar todos los valores "cambiar_esto"
-# perfil dev: copiar un video a docker/rtsp-sim/video_prueba.mp4 (ver docker/rtsp-sim/README.md)
+# perfil dev: el video de la cámara simulada ya viene en docker/rtsp-sim/ (ver su README)
 docker compose --profile dev up -d --build
 docker compose ps
 ```
@@ -32,14 +32,14 @@ Cuando `docker compose ps` muestra todo arriba, el dashboard queda en `http://12
 | Servicio | Imagen | Puerto en este equipo | Salud |
 | --- | --- | --- | --- |
 | `db` | `postgres:16.15-alpine` | ninguno | `pg_isready` |
-| `api` | `cascovision/api` | `127.0.0.1:8000` (`/health`, `/docs`) | `GET /health` |
+| `api` | `cascovision/api` | `8000` en todas las interfaces (`/health`, `/docs`) | `GET /health` |
 | `dashboard` | `cascovision/dashboard` (nginx) | `127.0.0.1:8080` (entrar con `CASCOVISION_ADMIN_*`) | |
 | `edge` | `cascovision/edge` (CPU) | ninguno | `ultimo_cuadro.jpg` actualizado en el último minuto |
 | `rtsp-sim` (dev) | `bluenviron/mediamtx:1.15.0-ffmpeg` | ninguno (`rtsp://rtsp-sim:8554/camara-01` en la red interna) | |
 | `receptor-sim` (dev) | `cascovision/receptor-sim` | `127.0.0.1:8081` (`GET /health`: `"alerting": true` mientras suena) | |
 | `mailpit` (dev) | `axllent/mailpit:v1.27.10` | `127.0.0.1:8025` (buzón web con los avisos por correo) | |
 
-Los puertos solo se publican en `127.0.0.1`. En la faena se quita el de la API (AD-07).
+El dashboard y los simuladores se publican solo en `127.0.0.1`. La API se publica en todas las interfaces (`0.0.0.0`) porque la baliza StickS3 le informa su estado y sus registros por la red local (`/edge/beacons/{id}/health` y `/logs`). Por eso el equipo debe estar en la red separada de dispositivos de la faena, con el firewall cerrado hacia otras redes; las rutas de la baliza exigen su token.
 
 ## Base de datos
 
@@ -80,7 +80,8 @@ Probado el 05-11-2026: un respaldo restaurado en una base aparte conserva los mi
 
 ## Decisiones y diferencias con el diseño
 
-- **El video de `rtsp-sim` no se versiona** (`.gitignore` excluye `*.mp4`): hay que copiarlo a mano.
+- **El video de `rtsp-sim` se versiona como excepción** al `.gitignore` (62 KB, hecho con `Yolo/modelamiento/testeo.jpg`), para que el perfil `dev` funcione apenas se clona el repositorio.
+- **Demostración lista con `CASCOVISION_SEED=1`:** `docker/db/00-migrar.sh` activa `camara-01` y `zona-norte` y apunta la cámara a `rtsp-sim`; el seed las deja desactivadas y el agente no vigila una zona desactivada.
 - **El dashboard llega a la API por nginx** (`docker/dashboard/nginx.conf`): el navegador solo ve `127.0.0.1:8080` y `/api/` se reenvía al servicio `api` por la red interna, así que la API no necesita CORS.
 - **El agente no espera a la API.** Si la API aún no responde al arrancar, usa `docker/edge/config.json` (AD-04); por eso en un arranque en frío el registro dice «la API no respondió GET /edge/config». El agente reintenta en cada latido de 30 s y, cuando la API responde, empieza a informar el estado de la baliza; la zona y el polígono de la base se toman al reiniciarlo (`docker compose restart edge`).
 - **Si la cámara no está lista al arrancar, el agente termina y `restart: unless-stopped` lo reintenta.**

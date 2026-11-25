@@ -3,7 +3,32 @@
 **Sistema de detección automatizada de EPP mediante visión computacional**
 Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802D)
 
-> **Estado (S13):** MVP ejecutable de punta a punta con Docker Compose: cámara RTSP → agente Edge con YOLO26 → baliza zonal (simulada) → API REST con PostgreSQL → dashboard web con login y roles. Pendiente: firmware de la baliza real, SMS y correo, y reportes en PDF y Excel.
+> **Estado (S16, cierre de la Fase 2):** sistema ejecutable de punta a punta con Docker Compose: cámara RTSP o webcam → agente Edge con YOLO26 → baliza zonal (simulada o M5Stack StickS3) → API REST con PostgreSQL → dashboard web con login y roles, avisos por correo y reportes en PDF y Excel. El SMS quedó fuera de alcance. El modelo cumple el *recall* del RNF-05, pero no el mAP@0,5 ≥ 0,90; la desviación está documentada en [Modelo de detección](#modelo-de-detección).
+
+## Cómo revisar este repositorio
+
+Las evidencias están ordenadas por fase. Cada carpeta tiene un `README.md` que indica qué entregable es cada archivo:
+
+| Fase | Contenido | Índice |
+| --- | --- | --- |
+| Fase 1 · Definición | Guía de definición del proyecto, presentación, autoevaluaciones y diarios 1.1 a 1.3 | [Fase 1/README.md](Fase%201/README.md) |
+| Fase 2 · Desarrollo | Guías 2.4 y 2.6, documentos D1 a D3, carta Gantt, diarios y autoevaluaciones 2.1 y 2.2, y el código del sistema | [Fase 2/README.md](Fase%202/README.md) |
+| Fase 3 · Presentación | Presentación final, video de la demo, plan B, diarios 3.1 y autoevaluaciones 3.2 | [Fase 3/README.md](Fase%203/README.md) |
+
+El código está en [`Fase 2/Evidencias Proyecto/`](Fase%202/Evidencias%20Proyecto/). La forma de levantarlo está más abajo, en [Ejecución con Docker](#ejecución-con-docker-recomendada).
+
+### Dónde está cada elemento obligatorio
+
+| Elemento del anexo de metodología | Dónde está |
+| --- | --- |
+| Arquitectura: diagrama, componentes y comunicación entre servicios | D2 §2 ([`Documentacion/`](Fase%202/Evidencias%20Proyecto/Documentacion/)) · [diagrama](Fase%202/Evidencias%20Proyecto/docs/diagramas/Diagrama_Arquitectura.png) · [Arquitectura](#arquitectura) |
+| Modelo de datos (ER, PostgreSQL) | D2 §4 · [diagrama ER](Fase%202/Evidencias%20Proyecto/docs/diagramas/Diagrama_ER.png) · [docs/MODELO_DATOS.md](Fase%202/Evidencias%20Proyecto/docs/MODELO_DATOS.md) |
+| UML: casos de uso, clases, secuencia y componentes | D1 §7 y D2 §5 · [`docs/diagramas/`](Fase%202/Evidencias%20Proyecto/docs/diagramas/) |
+| Requisitos no funcionales (seguridad, rendimiento, escalabilidad, disponibilidad, portabilidad) | D1 §6, RNF-01 a RNF-18 |
+| Docker: Dockerfiles, docker-compose, variables de entorno y cómo levantarlo | [`docker/`](Fase%202/Evidencias%20Proyecto/docker/) · [`compose.yaml`](Fase%202/Evidencias%20Proyecto/compose.yaml) · [`.env.example`](Fase%202/Evidencias%20Proyecto/.env.example) · [Ejecución con Docker](#ejecución-con-docker-recomendada) |
+| Pruebas unitarias, de integración, de rendimiento y de seguridad | D3 (plan e informe de resultados) · [`tests/`](Fase%202/Evidencias%20Proyecto/tests/) · CI en [`.github/workflows/tests.yml`](.github/workflows/tests.yml) |
+| Innovación: qué problema resuelve, qué la hace diferente y qué valor agrega | Informe final 2.6, sección 7 ([`Fase 2/Evidencias Grupales/`](Fase%202/Evidencias%20Grupales/)) |
+| Manual técnico y de despliegue (D4): instalación, Docker Compose, variables de entorno y ejecución | D4 ([`Documentacion/`](Fase%202/Evidencias%20Proyecto/Documentacion/)) · detalle en [docs/DESPLIEGUE_DOCKER.md](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md) |
 
 ---
 
@@ -13,7 +38,7 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 
 1. registra el incidente con evidencia fotográfica (rostros difuminados);
 2. activa una **baliza zonal** que emite una alerta sonora y visual en el mismo sector;
-3. notifica al prevencionista de riesgos por SMS y correo;
+3. notifica al prevencionista de riesgos por correo;
 4. muestra el incidente en un dashboard web con historial y reportes.
 
 **A quién va dirigido.** A empresas constructoras, en particular a los **prevencionistas de riesgos** y jefes de terreno.
@@ -30,7 +55,8 @@ Proyecto APT · Capstone PTY4614 · Duoc UC · 2026.02 · Equipo 1 (sección 802
 | Base de datos | PostgreSQL |
 | Frontend | React.js |
 | Alerta física | M5Stack StickS3 (ESP32-S3) · HTTP en la red local |
-| Notificaciones | Twilio (SMS) · SMTP (correo) |
+| Notificaciones | SMTP (correo); el SMS (RF-11) quedó fuera de alcance |
+| Reportes | PDF y Excel generados por la API |
 | Despliegue | Docker · Docker Compose (on-premise, sin nube) |
 
 ## Arquitectura
@@ -41,7 +67,7 @@ flowchart LR
     EDGE -->|POST /alert| BAL[Baliza zonal<br/>M5Stack StickS3]
     EDGE -->|evento + resultado de la alerta| API[API REST<br/>FastAPI]
     API --> DB[(PostgreSQL)]
-    API --> NOT[SMS / correo<br/>Twilio · SMTP]
+    API --> NOT[Correo<br/>SMTP]
     DASH[Dashboard web<br/>React] <--> API
 ```
 
@@ -60,7 +86,7 @@ cd "AV_AldoMartinez802D_Equipo1/Fase 2/Evidencias Proyecto"
 cp .env.example .env        # PowerShell: Copy-Item .env.example .env
 # editar .env: reemplazar cada "cambiar_esto" por un valor al azar
 #   (JWT_SECRET y BALIZA_TOKEN de 32+ caracteres; CASCOVISION_ADMIN_PASSWORD de 12+)
-# perfil dev: copiar un video público a docker/rtsp-sim/video_prueba.mp4
+#   para ver los avisos por correo en Mailpit: SMTP_HOST=mailpit y SMTP_PORT=1025
 docker compose --profile dev up -d --build
 docker compose ps
 ```
@@ -70,12 +96,22 @@ docker compose ps
 | Dashboard | http://127.0.0.1:8080 | Entrar con `CASCOVISION_ADMIN_EMAIL` y `CASCOVISION_ADMIN_PASSWORD` |
 | API | http://127.0.0.1:8000/docs | Documentación interactiva de la API |
 | Baliza simulada | http://127.0.0.1:8081/health | `"alerting": true` mientras suena |
+| Correo de prueba (Mailpit) | http://127.0.0.1:8025 | Bandeja que recibe los avisos al prevencionista en el perfil `dev` |
 
-El perfil `dev` agrega una cámara RTSP que repite el video y una baliza simulada, así que todo el flujo corre en un solo PC. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
+El perfil `dev` agrega una cámara RTSP que repite el video de prueba incluido en el repositorio (`docker/rtsp-sim/video_prueba.mp4`), una baliza simulada y un servidor de correo de prueba, así que todo el flujo corre en un solo PC: a los pocos segundos de levantarlo, el agente detecta a la persona sin EPP, la baliza simulada se activa y el incidente aparece en el dashboard. El correo se envía a los prevencionistas activos, así que para verlo en Mailpit hay que crear uno desde **Usuarios**. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
+
+### Con la webcam y la baliza StickS3 (Windows)
+
+Para la demostración con equipos reales, dos scripts de PowerShell en `Fase 2/Evidencias Proyecto/scripts/` reemplazan la cámara y la baliza simuladas:
+
+1. **`conectar-stick.ps1`** configura por USB el Wi-Fi y la URL de la API en el StickS3. Toma la red Wi-Fi y la IP de la PC, y pide la clave solo si la red cambió. Antes, el Stick debe tener cargado el firmware de `src/firmware/baliza/` y una configuración inicial hecha con `src/firmware/configurador_nvs/`.
+2. **`iniciar-cascovision-camara.ps1`** detiene el agente Edge y la cámara simulada de Docker, levanta `db`, `api` y `dashboard` con `compose.yaml` y `compose.camera.yaml` y corre el agente en Windows sobre la cámara 1. La API lee la evidencia de la carpeta local `incidents/`.
+
+Los dos scripts leen los tokens desde el mismo `.env` de Docker.
 
 ## Ejecución sin Docker (desarrollo)
 
-Requisitos: Python **3.12** con [uv](https://docs.astral.sh/uv/) y, para el dashboard, Node 22. Desde la raíz del repositorio:
+Requisitos: Python **3.12** con [uv](https://docs.astral.sh/uv/) y, para el dashboard, Node 22. La [guía de uv](Fase%202/Evidencias%20Proyecto/docs/GUIA_UV.md) explica la instalación paso a paso en Windows. Desde la raíz del repositorio:
 
 ```bash
 uv sync --group dev
@@ -114,14 +150,16 @@ por debajo de 5.0 porque la 5.x eliminó `cv2.CascadeClassifier`, que usan los
 scripts de prueba. En un equipo sin GPU NVIDIA, hay que quitar el índice de
 PyTorch y dejar que se instale la variante de CPU.
 
-Con la cámara conectada:
+Con la cámara conectada, desde la carpeta del proyecto:
 
 ```bash
+cd "Fase 2/Evidencias Proyecto"
+
 # Monitoreo local, sin API
-uv run python "Yolo/modelamiento/monitoreo_v2.py"
+uv run python Yolo/modelamiento/monitoreo_v2.py
 
 # Agente Edge: reporta los incidentes a la API
-uv run python "Yolo/modelamiento/monitoreo_api.py"
+uv run python Yolo/modelamiento/monitoreo_api.py
 ```
 
 ## Modelo de detección
@@ -135,7 +173,7 @@ El detector actual (`train-10`) trabaja con **5 clases** (`helmet`, `no_helmet`,
 | ¿lleva casco? | P 1,000 · R 0,643 · E 0,643 | **P 0,986 · R 0,947 · E 0,934** |
 | ¿lleva chaleco? | P 0,951 · R 0,583 · E 0,566 | **P 1,000 · R 0,887 · E 0,887** |
 
-Con esto **el RNF-05 se cumple en las dos reglas de negocio** (recall ≥ 0,85); ninguna lo cumplía antes. El mAP@0,5 promedio queda en 0,877, por debajo del 0,90 del RNF-05, pero esa cifra no es comparable con la del modelo anterior: el dataset nuevo tiene 5 clases todas del producto, frente a las 11 del anterior (6 irrelevantes que hundían el promedio). El proceso de modelado, el análisis de desempeño y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
+Con esto **el RNF-05 se cumple en las dos reglas de negocio** (recall ≥ 0,85); ninguna lo cumplía antes. El mAP@0,5 promedio queda en 0,877, por debajo del 0,90 del RNF-05, pero esa cifra no es comparable con la del modelo anterior: el dataset nuevo tiene 5 clases todas del producto, frente a las 11 del anterior (6 irrelevantes que hundían el promedio). El reentrenamiento `train-11` (mixup 0,1) empató con `train-10`, y el 21-11-2026 la tarea se cerró con `train-10` como modelo final y la brecha del mAP@0,5 registrada como desviación. El proceso de modelado, el análisis de desempeño, la decisión de cierre y las líneas de trabajo pendientes están en [`Yolo/README.md`](Fase%202/Evidencias%20Proyecto/Yolo/README.md).
 
 La línea base `train-9` (11 clases) queda documentada como referencia histórica: mAP@0,5 = 0,624, con señales de sobreajuste entre entrenamiento y validación.
 
@@ -166,26 +204,39 @@ Flujo de ramas: `dev-*` → pull request → `qa` → pull request → `main` (p
 | Implantación y cierre | 14–15 | D4 · Manual técnico e informe final |
 | Presentación | 16–18 | Defensa |
 
-Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tarea solo empieza antes si no depende del entregable pendiente (por ejemplo, el dataset no depende del documento de diseño). La carta Gantt detallada está en [`Fase 2/Evidencias Grupales/`](Fase%202/Evidencias%20Grupales/).
+Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tarea solo empieza antes si no depende del entregable pendiente (por ejemplo, el dataset no depende del documento de diseño). La carta Gantt detallada está en [`Fase 2/Evidencias Proyecto/Documentacion/`](Fase%202/Evidencias%20Proyecto/Documentacion/).
 
 ## Estructura del repositorio
 
 ```
-├── Fase 1/                         Evidencias de la definición del proyecto
-├── Fase 2/
-│   ├── Evidencias Grupales/        D1 SRS · carta Gantt · D2 Diseño · D3 Pruebas · D4 Manual técnico
-│   ├── Evidencias Individuales/    Diarios y autoevaluaciones de cada integrante
-│   └── Evidencias Proyecto/        Código y artefactos técnicos
+├── README.md                       Este archivo
+├── pyproject.toml · uv.lock        Dependencias de Python, gestionadas con uv
+├── .github/workflows/tests.yml     CI: pruebas con PostgreSQL y compilación del dashboard en cada PR
+├── Fase 1/                         Definición del proyecto (índice en Fase 1/README.md)
+│   ├── Evidencias Grupales/        Guía 1.5, formativa 1.4, presentación y planilla de evaluación
+│   └── Evidencias Individuales/    Autoevaluaciones y diarios 1.1 a 1.3 de cada integrante
+├── Fase 2/                         Desarrollo del proyecto (índice en Fase 2/README.md)
+│   ├── Evidencias Grupales/        Guías 2.4 y 2.6 (informe final) y planilla de evaluación del avance
+│   ├── Evidencias Individuales/    Diarios 2.1 y autoevaluaciones 2.2 de cada integrante
+│   └── Evidencias Proyecto/        Presentación, documentación y sistema (aplicación y base de datos)
+│       ├── Presentación Proyecto.pptx  Presentación del avance de la Fase 2
+│       ├── Documentacion/          D1 SRS · D2 Diseño · D3 Pruebas · D4 Manual técnico · carta Gantt
 │       ├── .env.example            Variables de entorno de ejemplo
+│       ├── compose.yaml            Despliegue completo (perfil dev con simuladores y Mailpit)
+│       ├── compose.camera.yaml     Variante con el agente en Windows sobre la webcam
+│       ├── compose.train.yaml      Entrenamiento de YOLO26 con GPU NVIDIA
+│       ├── scripts/                Configuración del StickS3 por USB y arranque con webcam
 │       ├── src/
 │       │   ├── api/                API REST (FastAPI)
 │       │   ├── edge/               Agente Edge (visión computacional)
 │       │   ├── dashboard/          Dashboard web (React)
 │       │   └── firmware/           Firmware de la baliza zonal
-│       ├── Yolo/                   Entrenamiento, motor de detección y agente Edge (provisional)
+│       ├── Yolo/                   Entrenamiento, evaluación y exportación del modelo, motor de detección y scripts de monitoreo
 │       ├── models/                 Modelo YOLO26 entrenado, detector de rostros YuNet y métricas
 │       ├── db/migrations/          Esquema SQL de PostgreSQL
 │       ├── tests/                  Pruebas automatizadas
-│       └── docs/diagramas/         Diagramas UML y de arquitectura
-└── Fase 3/                         Presentación final
+│       └── docs/                   API, protocolo de la baliza, modelo de datos, Docker, guía de uv y diagramas UML
+└── Fase 3/                         Presentación y defensa (índice en Fase 3/README.md)
+    ├── Evidencias Grupales/        Presentación final, video de demostración y plan B de la demo
+    └── Evidencias Individuales/    Diarios 3.1 y autoevaluaciones 3.2 de cada integrante
 ```

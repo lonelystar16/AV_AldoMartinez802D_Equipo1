@@ -1,0 +1,29 @@
+Mediciones del D3 v0.2 · 25-11-2026 · stack `cv-entrega` (perfil dev) sobre dev-iahn ca0e21d
+
+pytest con PostgreSQL 16.15 desechable (CASCOVISION_TEST_POSTGRES=1):
+  408 passed in 79.39s
+pytest sin PostgreSQL:
+  347 passed, 61 skipped in 75.38s
+
+PR-03 (pr03_inferencia.py, ONNX Runtime 1.31.0, CPUExecutionProvider):
+  cuadros=500 media=88.9 ms mediana=88.1 ms p95=99.9 ms max=131.5 ms
+  PR-03 APROBADO
+
+PR-01, PR-05, PS-07 en base: ver e2e.json
+PS-08: ver ps08.json  ->  {"minutos": 20.0, "muestras": 205, "conexiones_externas": {}}
+
+PS-07 (ps07_rostros.py, YuNet 2023mar, umbral 0,6):
+  evidencias revisadas=12 con rostro detectable=0 []
+  control: cuadros originales muestreados=65 con rostro detectable=40
+  PS-07 APROBADO
+
+Seguridad en vivo (seguridad_vivo.py):
+  PS-01 | Rutas sin JWT, con firma alterada o con el token del agente | APROBADO | respuestas [401, 401, 401]
+  PS-02 | Supervisor crea usuario o modifica baliza | APROBADO | respuestas [403, 403]
+  PS-03 | Evidencia de un incidente sin JWT | APROBADO | respuesta 401
+  PS-04 | POST /alert sin token o con token incorrecto | APROBADO | respuestas [401, 401]
+  PS-05 | zone_id=' OR 1=1 -- en /incidents y /reports | APROBADO | /incidents 200 con 0 filas; /reports 200
+  PS-09 | Contraseñas en la tabla users | APROBADO | 6 de 6 con hash bcrypt
+
+PS-06 (git grep en HEAD): solo `.env.example` versionado; coincidencias solo con valores
+de ejemplo en README.md y docs/GUIA_UV.md (`un_valor_secreto`).
