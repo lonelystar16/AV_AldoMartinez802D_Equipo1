@@ -1,0 +1,41 @@
+{
+  "PR-01": {
+    "ordenes_recibidas": 137,
+    "deteccion_a_baliza_s": {
+      "n": 12,
+      "mediana": 0.0039065,
+      "p95": 0.005129,
+      "max": 0.009357
+    },
+    "envio_a_llegada_ms": {
+      "mediana": 1.9369999999999998,
+      "p95": 6.439
+    },
+    "latencia_informada_por_agente_ms": {
+      "n": 12,
+      "mediana": 4.0,
+      "p95": 5
+    },
+    "criterio": "< 5 s en el 95 %",
+    "aprobado": true
+  },
+  "PR-05": {
+    "correos": 10,
+    "incidentes": 16,
+    "incidente_a_correo_s": {
+      "n": 10,
+      "mediana": 0.08462,
+      "p95": 0.119924,
+      "max": 0.119924
+    },
+    "criterio": "<= 30 s",
+    "aprobado": true,
+    "notifications": {
+      "sent": 10
+    }
+  },
+  "PS-07_db": {
+    "f": 4,
+    "t": 12
+  }
+}

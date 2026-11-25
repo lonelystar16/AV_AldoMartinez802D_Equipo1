@@ -1,0 +1,5 @@
+# Solo para la medición PR-01 del D3: repite el aviso cada 10 s para juntar
+# 50 eventos en pocos minutos. No cambia la latencia de cada orden.
+services:
+  edge:
+    command: ["python", "Fase 2/Evidencias Proyecto/src/edge/agente.py", "--config", "/config/edge.json", "--sin-ventana", "--ping", "10"]
