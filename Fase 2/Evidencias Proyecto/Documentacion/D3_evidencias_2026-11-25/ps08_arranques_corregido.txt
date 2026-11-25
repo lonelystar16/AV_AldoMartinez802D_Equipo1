@@ -1,0 +1,1 @@
+arranques=20 externas=0
