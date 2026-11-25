@@ -210,3 +210,21 @@ def test_siguiente_marca_se_reinicia_si_el_agente_quedo_atras() -> None:
     assert agente.siguiente_marca(100.0, 100.05, 1.0) == 101.0
     # Tras una reconexión de 5 s no se analiza en ráfaga: la marca salta a «ahora».
     assert agente.siguiente_marca(100.0, 105.0, 1.0) == 105.0
+
+
+def test_el_agente_no_manda_telemetria_fuera_de_la_faena() -> None:
+    # RNF-08 / DEF-06: con el agente importado primero, Ultralytics queda sin
+    # conexión y la telemetría de ONNX Runtime, apagada. Proceso aparte, porque otras pruebas importan Ultralytics antes.
+    import os
+    import subprocess
+
+    codigo = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import agente; "
+        "import os; from ultralytics.utils import ONLINE; print(ONLINE, os.environ.get('ORT_DISABLE_TELEMETRY'))"
+    )
+    entorno = {k: v for k, v in os.environ.items() if k not in ("YOLO_OFFLINE", "ORT_DISABLE_TELEMETRY")}
+    salida = subprocess.run(
+        [sys.executable, "-c", codigo, str(Path(__file__).parents[1] / "src" / "edge")],
+        capture_output=True, text=True, env=entorno, timeout=120, check=True,
+    )
+    assert salida.stdout.strip().splitlines()[-1] == "False 1"

@@ -33,6 +33,19 @@ PROYECTO = Path(__file__).resolve().parents[2]  # Fase 2/Evidencias Proyecto
 # en curso en esa carpeta; moverlo a src/edge al armar la imagen Docker (4.17).
 sys.path.insert(0, str(PROYECTO / "Yolo" / "modelamiento"))
 
+# RNF-08: nada sale de la red de la faena. Ultralytics manda eventos de uso a
+# Google si cree estar en línea (lo decide al importarse) y ONNX Runtime manda
+# telemetría a Microsoft (mobile.events.data.microsoft.com) desde que se
+# importa; las dos conexiones aparecieron en PS-08 (DEF-06).
+os.environ.setdefault("YOLO_OFFLINE", "1")
+os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+try:
+    import onnxruntime
+
+    onnxruntime.disable_telemetry_events()
+except ImportError:  # sin ONNX Runtime el agente carga el modelo .pt
+    pass
+
 from monitoreo_api import ReporteAPI  # noqa: E402
 from motor_cascovision import PING_SEGUNDOS, MonitorEPP, ZONA_POR_DEFECTO  # noqa: E402
 
