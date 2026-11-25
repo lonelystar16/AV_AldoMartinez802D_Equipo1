@@ -13,7 +13,7 @@ Desde `Fase 2/Evidencias Proyecto`:
 ```bash
 cp .env.example .env        # en PowerShell: Copy-Item .env.example .env
 # editar .env: cambiar todos los valores "cambiar_esto"
-# perfil dev: copiar un video a docker/rtsp-sim/video_prueba.mp4 (ver docker/rtsp-sim/README.md)
+# perfil dev: el video de la cámara simulada ya viene en docker/rtsp-sim/ (ver su README)
 docker compose --profile dev up -d --build
 docker compose ps
 ```
@@ -80,7 +80,8 @@ Probado el 05-11-2026: un respaldo restaurado en una base aparte conserva los mi
 
 ## Decisiones y diferencias con el diseño
 
-- **El video de `rtsp-sim` no se versiona** (`.gitignore` excluye `*.mp4`): hay que copiarlo a mano.
+- **El video de `rtsp-sim` se versiona como excepción** al `.gitignore` (62 KB, hecho con `Yolo/modelamiento/testeo.jpg`), para que el perfil `dev` funcione apenas se clona el repositorio.
+- **Demostración lista con `CASCOVISION_SEED=1`:** `docker/db/00-migrar.sh` activa `camara-01` y `zona-norte` y apunta la cámara a `rtsp-sim`; el seed las deja desactivadas y el agente no vigila una zona desactivada.
 - **El dashboard llega a la API por nginx** (`docker/dashboard/nginx.conf`): el navegador solo ve `127.0.0.1:8080` y `/api/` se reenvía al servicio `api` por la red interna, así que la API no necesita CORS.
 - **El agente no espera a la API.** Si la API aún no responde al arrancar, usa `docker/edge/config.json` (AD-04); por eso en un arranque en frío el registro dice «la API no respondió GET /edge/config». El agente reintenta en cada latido de 30 s y, cuando la API responde, empieza a informar el estado de la baliza; la zona y el polígono de la base se toman al reiniciarlo (`docker compose restart edge`).
 - **Si la cámara no está lista al arrancar, el agente termina y `restart: unless-stopped` lo reintenta.**

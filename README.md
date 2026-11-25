@@ -86,7 +86,7 @@ cd "AV_AldoMartinez802D_Equipo1/Fase 2/Evidencias Proyecto"
 cp .env.example .env        # PowerShell: Copy-Item .env.example .env
 # editar .env: reemplazar cada "cambiar_esto" por un valor al azar
 #   (JWT_SECRET y BALIZA_TOKEN de 32+ caracteres; CASCOVISION_ADMIN_PASSWORD de 12+)
-# perfil dev: copiar un video público a docker/rtsp-sim/video_prueba.mp4
+#   para ver los avisos por correo en Mailpit: SMTP_HOST=mailpit y SMTP_PORT=1025
 docker compose --profile dev up -d --build
 docker compose ps
 ```
@@ -98,7 +98,7 @@ docker compose ps
 | Baliza simulada | http://127.0.0.1:8081/health | `"alerting": true` mientras suena |
 | Correo de prueba (Mailpit) | http://127.0.0.1:8025 | Bandeja que recibe los avisos al prevencionista en el perfil `dev` |
 
-El perfil `dev` agrega una cámara RTSP que repite el video, una baliza simulada y un servidor de correo de prueba, así que todo el flujo corre en un solo PC. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
+El perfil `dev` agrega una cámara RTSP que repite el video de prueba incluido en el repositorio (`docker/rtsp-sim/video_prueba.mp4`), una baliza simulada y un servidor de correo de prueba, así que todo el flujo corre en un solo PC: a los pocos segundos de levantarlo, el agente detecta a la persona sin EPP, la baliza simulada se activa y el incidente aparece en el dashboard. El correo se envía a los prevencionistas activos, así que para verlo en Mailpit hay que crear uno desde **Usuarios**. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
 
 ### Con la webcam y la baliza StickS3 (Windows)
 
