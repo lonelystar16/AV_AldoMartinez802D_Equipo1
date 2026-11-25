@@ -28,7 +28,7 @@ El código está en [`Fase 2/Evidencias Proyecto/`](Fase%202/Evidencias%20Proyec
 | Docker: Dockerfiles, docker-compose, variables de entorno y cómo levantarlo | [`docker/`](Fase%202/Evidencias%20Proyecto/docker/) · [`compose.yaml`](Fase%202/Evidencias%20Proyecto/compose.yaml) · [`.env.example`](Fase%202/Evidencias%20Proyecto/.env.example) · [Ejecución con Docker](#ejecución-con-docker-recomendada) |
 | Pruebas unitarias, de integración, de rendimiento y de seguridad | D3 (plan e informe de resultados) · [`tests/`](Fase%202/Evidencias%20Proyecto/tests/) · CI en [`.github/workflows/tests.yml`](.github/workflows/tests.yml) |
 | Innovación: qué problema resuelve, qué la hace diferente y qué valor agrega | Informe final 2.6, sección 7 ([`Fase 2/Evidencias Grupales/`](Fase%202/Evidencias%20Grupales/)) |
-| Manual técnico y de despliegue (D4) | En preparación · mientras tanto, [docs/DESPLIEGUE_DOCKER.md](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md) |
+| Manual técnico y de despliegue (D4): instalación, Docker Compose, variables de entorno y ejecución | D4 ([`Documentacion/`](Fase%202/Evidencias%20Proyecto/Documentacion/)) · detalle en [docs/DESPLIEGUE_DOCKER.md](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md) |
 
 ---
 
@@ -220,7 +220,7 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │   ├── Evidencias Individuales/    Diarios 2.1 y autoevaluaciones 2.2 de cada integrante
 │   └── Evidencias Proyecto/        Presentación, documentación y sistema (aplicación y base de datos)
 │       ├── Presentación Proyecto.pptx  Presentación del avance de la Fase 2
-│       ├── Documentacion/          D1 SRS · D2 Diseño · D3 Pruebas · carta Gantt (el D4 está en preparación)
+│       ├── Documentacion/          D1 SRS · D2 Diseño · D3 Pruebas · D4 Manual técnico · carta Gantt
 │       ├── .env.example            Variables de entorno de ejemplo
 │       ├── compose.yaml            Despliegue completo (perfil dev con simuladores y Mailpit)
 │       ├── compose.camera.yaml     Variante con el agente en Windows sobre la webcam

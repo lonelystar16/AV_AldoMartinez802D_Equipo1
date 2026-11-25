@@ -36,7 +36,7 @@ Los documentos D1 a D4 son los que pide el anexo de metodología para el enfoque
 | D2 | Anexo del D2: capítulo de arquitectura y despliegue, con el detalle que el D2 consolidado resume | 1.0 | [.docx](<Evidencias Proyecto/Documentacion/D2_Arquitectura_Despliegue_CascoVision.docx>) · [.pdf](<Evidencias Proyecto/Documentacion/D2_Arquitectura_Despliegue_CascoVision.pdf>) |
 | D3 | Plan de pruebas: casos unitarios, de integración, de rendimiento, de seguridad y de aceptación | 0.9 | [.docx](<Evidencias Proyecto/Documentacion/D3_Plan_de_Pruebas_CascoVision.docx>) · [.pdf](<Evidencias Proyecto/Documentacion/D3_Plan_de_Pruebas_CascoVision.pdf>) |
 | D3 | Informe de resultados de pruebas | borrador 0.1 | [.md](<Evidencias Proyecto/Documentacion/D3_Informe_Resultados_Pruebas_CascoVision.md>) |
-| D4 | Manual técnico y de despliegue | en preparación | Mientras tanto: [docs/DESPLIEGUE_DOCKER.md](<Evidencias Proyecto/docs/DESPLIEGUE_DOCKER.md>) |
+| D4 | Manual técnico y de despliegue: instalación, Docker Compose, variables de entorno, ejecución, baliza StickS3 y problemas frecuentes | 1.0 | [.docx](<Evidencias Proyecto/Documentacion/D4_Manual_Tecnico_CascoVision.docx>) · [.pdf](<Evidencias Proyecto/Documentacion/D4_Manual_Tecnico_CascoVision.pdf>) |
 
 ### Sistema: aplicación y base de datos
 
