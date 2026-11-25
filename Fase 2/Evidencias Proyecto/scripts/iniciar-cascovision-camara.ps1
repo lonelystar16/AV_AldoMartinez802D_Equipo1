@@ -66,6 +66,9 @@ try {
     $config.fuente = "1"
     $config.api = "http://127.0.0.1:$apiPort"
     $config.carpeta_datos = Join-Path $env:LOCALAPPDATA "CascoVision\edge-data"
+    # Sin URL local, el agente usa la IP que el StickS3 informa a la API
+    # (GET /edge/beacons/{id}/health), sea cual sea la red Wi-Fi.
+    $config.baliza.url = ""
     $json = ConvertTo-Json -InputObject $config -Depth 10
     [System.IO.File]::WriteAllText($tempConfig, $json, [System.Text.UTF8Encoding]::new($false))
 
