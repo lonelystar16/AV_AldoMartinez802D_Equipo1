@@ -6,10 +6,10 @@ En esta fase se presenta el producto terminado y se defiende el proyecto (semana
 
 | Documento | Archivo |
 | --- | --- |
-| Presentación final del proyecto | [Presentación final CascoVision Capstone.pptx](<Evidencias Grupales/Presentación final CascoVision Capstone.pptx>) |
+| Presentación final del proyecto | [Presentación Final del proyecto (Español).pptx](<Evidencias Grupales/Presentación Final del proyecto (Español).pptx>) |
 | Video de demostración del sistema, que también sirve de respaldo si falla la demo en vivo | [VideoDeMuestra.mp4](<Evidencias Grupales/VideoDeMuestra.mp4>) |
 | Checklist y plan B de la demo en vivo | [Plan_B_Demo_CascoVision.md](<Evidencias Grupales/Plan_B_Demo_CascoVision.md>) |
-| Planilla de evaluación de la presentación final | [PLANILLA DE EVALUACIÓN FASE 3 - PRESENTACION FINAL.xlsx](<Evidencias Grupales/PLANILLA DE EVALUACIÓN FASE 3 - PRESENTACION FINAL.xlsx>) |
+| Planilla de evaluación de la presentación final | [PLANILLA DE EVALUACIÓN FASE 3.xlsx](<Evidencias Grupales/PLANILLA DE EVALUACIÓN FASE 3.xlsx>) |
 
 ## Evidencias individuales
 

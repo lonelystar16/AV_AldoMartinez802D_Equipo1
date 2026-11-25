@@ -17,6 +17,19 @@ Las evidencias están ordenadas por fase. Cada carpeta tiene un `README.md` que 
 
 El código está en [`Fase 2/Evidencias Proyecto/`](Fase%202/Evidencias%20Proyecto/). La forma de levantarlo está más abajo, en [Ejecución con Docker](#ejecución-con-docker-recomendada).
 
+### Dónde está cada elemento obligatorio
+
+| Elemento del anexo de metodología | Dónde está |
+| --- | --- |
+| Arquitectura: diagrama, componentes y comunicación entre servicios | D2 §2 ([`Documentacion/`](Fase%202/Evidencias%20Proyecto/Documentacion/)) · [diagrama](Fase%202/Evidencias%20Proyecto/docs/diagramas/Diagrama_Arquitectura.png) · [Arquitectura](#arquitectura) |
+| Modelo de datos (ER, PostgreSQL) | D2 §4 · [diagrama ER](Fase%202/Evidencias%20Proyecto/docs/diagramas/Diagrama_ER.png) · [docs/MODELO_DATOS.md](Fase%202/Evidencias%20Proyecto/docs/MODELO_DATOS.md) |
+| UML: casos de uso, clases, secuencia y componentes | D1 §7 y D2 §5 · [`docs/diagramas/`](Fase%202/Evidencias%20Proyecto/docs/diagramas/) |
+| Requisitos no funcionales (seguridad, rendimiento, escalabilidad, disponibilidad, portabilidad) | D1 §6, RNF-01 a RNF-18 |
+| Docker: Dockerfiles, docker-compose, variables de entorno y cómo levantarlo | [`docker/`](Fase%202/Evidencias%20Proyecto/docker/) · [`compose.yaml`](Fase%202/Evidencias%20Proyecto/compose.yaml) · [`.env.example`](Fase%202/Evidencias%20Proyecto/.env.example) · [Ejecución con Docker](#ejecución-con-docker-recomendada) |
+| Pruebas unitarias, de integración, de rendimiento y de seguridad | D3 (plan e informe de resultados) · [`tests/`](Fase%202/Evidencias%20Proyecto/tests/) · CI en [`.github/workflows/tests.yml`](.github/workflows/tests.yml) |
+| Innovación: qué problema resuelve, qué la hace diferente y qué valor agrega | Informe final 2.6, sección 7 ([`Fase 2/Evidencias Grupales/`](Fase%202/Evidencias%20Grupales/)) |
+| Manual técnico y de despliegue (D4) | En preparación · mientras tanto, [docs/DESPLIEGUE_DOCKER.md](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md) |
+
 ---
 
 ## Descripción
@@ -73,7 +86,7 @@ cd "AV_AldoMartinez802D_Equipo1/Fase 2/Evidencias Proyecto"
 cp .env.example .env        # PowerShell: Copy-Item .env.example .env
 # editar .env: reemplazar cada "cambiar_esto" por un valor al azar
 #   (JWT_SECRET y BALIZA_TOKEN de 32+ caracteres; CASCOVISION_ADMIN_PASSWORD de 12+)
-# perfil dev: copiar un video público a docker/rtsp-sim/video_prueba.mp4
+#   para ver los avisos por correo en Mailpit: SMTP_HOST=mailpit y SMTP_PORT=1025
 docker compose --profile dev up -d --build
 docker compose ps
 ```
@@ -85,7 +98,7 @@ docker compose ps
 | Baliza simulada | http://127.0.0.1:8081/health | `"alerting": true` mientras suena |
 | Correo de prueba (Mailpit) | http://127.0.0.1:8025 | Bandeja que recibe los avisos al prevencionista en el perfil `dev` |
 
-El perfil `dev` agrega una cámara RTSP que repite el video, una baliza simulada y un servidor de correo de prueba, así que todo el flujo corre en un solo PC. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
+El perfil `dev` agrega una cámara RTSP que repite el video de prueba incluido en el repositorio (`docker/rtsp-sim/video_prueba.mp4`), una baliza simulada y un servidor de correo de prueba, así que todo el flujo corre en un solo PC: a los pocos segundos de levantarlo, el agente detecta a la persona sin EPP, la baliza simulada se activa y el incidente aparece en el dashboard. El correo se envía a los prevencionistas activos, así que para verlo en Mailpit hay que crear uno desde **Usuarios**. Sin `--profile dev` se levantan `db`, `api`, `dashboard` y `edge` para una faena real (cámara en `CAMARA_FUENTE` y baliza en `docker/edge/config.json`). Detalle, volúmenes y respaldo: [`docs/DESPLIEGUE_DOCKER.md`](Fase%202/Evidencias%20Proyecto/docs/DESPLIEGUE_DOCKER.md).
 
 ### Con la webcam y la baliza StickS3 (Windows)
 
@@ -191,7 +204,7 @@ Flujo de ramas: `dev-*` → pull request → `qa` → pull request → `main` (p
 | Implantación y cierre | 14–15 | D4 · Manual técnico e informe final |
 | Presentación | 16–18 | Defensa |
 
-Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tarea solo empieza antes si no depende del entregable pendiente (por ejemplo, el dataset no depende del documento de diseño). La carta Gantt detallada está en [`Fase 2/Evidencias Grupales/`](Fase%202/Evidencias%20Grupales/).
+Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tarea solo empieza antes si no depende del entregable pendiente (por ejemplo, el dataset no depende del documento de diseño). La carta Gantt detallada está en [`Fase 2/Evidencias Proyecto/Documentacion/`](Fase%202/Evidencias%20Proyecto/Documentacion/).
 
 ## Estructura del repositorio
 
@@ -203,9 +216,11 @@ Las fases se solapan de forma controlada en las semanas 9, 13 y 14–15: una tar
 │   ├── Evidencias Grupales/        Guía 1.5, formativa 1.4, presentación y planilla de evaluación
 │   └── Evidencias Individuales/    Autoevaluaciones y diarios 1.1 a 1.3 de cada integrante
 ├── Fase 2/                         Desarrollo del proyecto (índice en Fase 2/README.md)
-│   ├── Evidencias Grupales/        Guías 2.4 y 2.6 · D1 SRS · carta Gantt · D2 Diseño · D3 Pruebas (el D4 está en preparación)
+│   ├── Evidencias Grupales/        Guías 2.4 y 2.6 (informe final) y planilla de evaluación del avance
 │   ├── Evidencias Individuales/    Diarios 2.1 y autoevaluaciones 2.2 de cada integrante
-│   └── Evidencias Proyecto/        Código y artefactos técnicos
+│   └── Evidencias Proyecto/        Presentación, documentación y sistema (aplicación y base de datos)
+│       ├── Presentación Proyecto.pptx  Presentación del avance de la Fase 2
+│       ├── Documentacion/          D1 SRS · D2 Diseño · D3 Pruebas · carta Gantt (el D4 está en preparación)
 │       ├── .env.example            Variables de entorno de ejemplo
 │       ├── compose.yaml            Despliegue completo (perfil dev con simuladores y Mailpit)
 │       ├── compose.camera.yaml     Variante con el agente en Windows sobre la webcam
