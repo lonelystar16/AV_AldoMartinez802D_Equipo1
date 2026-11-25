@@ -1,0 +1,71 @@
+# Solo para PR-02, PS-07 y PS-08 del D3: cuatro cámaras simuladas y cuatro agentes.
+# Desde Fase 2/Evidencias Proyecto, junto con compose.yaml:
+#   docker compose -f compose.yaml -f Documentacion/D3_evidencias_2026-11-25/compose.medicion4.yaml --profile dev up -d
+services:
+  rtsp-sim:
+    volumes:
+      - type: bind
+        source: ./Documentacion/D3_evidencias_2026-11-25/rtsp-sim-4.yml
+        target: /mediamtx.yml
+        read_only: true
+
+  edge-2: &extra
+    image: cascovision/edge:dev
+    profiles: [dev]
+    environment:
+      EDGE_API_TOKEN: ${EDGE_API_TOKEN}
+      BALIZA_TOKEN: ${BALIZA_TOKEN}
+      CAMARA_FUENTE: rtsp://rtsp-sim:8554/camara-02
+    volumes:
+      - type: bind
+        source: ./Documentacion/D3_evidencias_2026-11-25/edge-2.json
+        target: /config/edge.json
+        read_only: true
+      - type: bind
+        source: ./models
+        target: /app/Fase 2/Evidencias Proyecto/models
+        read_only: true
+      - edge-datos-2:/data/edge
+      - evidencia:/app/Fase 2/Evidencias Proyecto/incidents
+    restart: unless-stopped
+
+  edge-3:
+    <<: *extra
+    environment:
+      EDGE_API_TOKEN: ${EDGE_API_TOKEN}
+      BALIZA_TOKEN: ${BALIZA_TOKEN}
+      CAMARA_FUENTE: rtsp://rtsp-sim:8554/camara-03
+    volumes:
+      - type: bind
+        source: ./Documentacion/D3_evidencias_2026-11-25/edge-3.json
+        target: /config/edge.json
+        read_only: true
+      - type: bind
+        source: ./models
+        target: /app/Fase 2/Evidencias Proyecto/models
+        read_only: true
+      - edge-datos-3:/data/edge
+      - evidencia:/app/Fase 2/Evidencias Proyecto/incidents
+
+  edge-4:
+    <<: *extra
+    environment:
+      EDGE_API_TOKEN: ${EDGE_API_TOKEN}
+      BALIZA_TOKEN: ${BALIZA_TOKEN}
+      CAMARA_FUENTE: rtsp://rtsp-sim:8554/camara-04
+    volumes:
+      - type: bind
+        source: ./Documentacion/D3_evidencias_2026-11-25/edge-4.json
+        target: /config/edge.json
+        read_only: true
+      - type: bind
+        source: ./models
+        target: /app/Fase 2/Evidencias Proyecto/models
+        read_only: true
+      - edge-datos-4:/data/edge
+      - evidencia:/app/Fase 2/Evidencias Proyecto/incidents
+
+volumes:
+  edge-datos-2:
+  edge-datos-3:
+  edge-datos-4:

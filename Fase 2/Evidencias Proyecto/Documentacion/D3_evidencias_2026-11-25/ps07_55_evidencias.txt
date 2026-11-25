@@ -1,0 +1,7 @@
+evidencias revisadas=55 con rostro detectable=0 []
+control: cuadros originales muestreados=65 con rostro detectable=40
+PS-07 APROBADO
+camara-01|13|13
+camara-02|13|13
+camara-03|14|14
+camara-04|14|14

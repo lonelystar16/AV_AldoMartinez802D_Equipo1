@@ -17,7 +17,10 @@ from datetime import datetime
 from pathlib import Path
 
 P = os.environ.get("CV_PROYECTO", "cv-entrega")
-DC = ["docker", "compose", "-p", P, "--profile", "dev"]
+# CV_ARCHIVOS: archivos de compose separados por ";" (por defecto, el compose.yaml del directorio).
+ARCHIVOS = [a for a in os.environ.get("CV_ARCHIVOS", "").split(";") if a]
+DC = ["docker", "compose", "-p", P, *[x for a in ARCHIVOS for x in ("-f", a)], "--profile", "dev"]
+SERVICIOS_MUESTREO = os.environ.get("CV_SERVICIOS", "api,edge,receptor-sim").split(",")
 
 
 def sh(args, **kw):
@@ -54,7 +57,7 @@ LEER_TCP = (
 
 
 def muestrear(minutos, salida):
-    servicios = ["api", "edge", "receptor-sim"]
+    servicios = SERVICIOS_MUESTREO
     externas, muestras = {}, 0
     fin = time.time() + minutos * 60
     while time.time() < fin:
