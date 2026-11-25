@@ -7,7 +7,8 @@
 # la 005, porque la 005 agrega las FK de incidents hacia cameras y zones.
 #
 # CASCOVISION_SEED=1 carga los catalogos y los incidentes de demostracion
-# (camara-01, zona-norte, baliza-01; todo desactivado). No usar en produccion.
+# (camara-01, zona-norte, baliza-01) y activa la camara y la zona de la demo
+# (ver el final). No usar en produccion.
 set -eu
 
 aplicar() {
@@ -25,6 +26,17 @@ aplicar migrations/005_claves_incidentes.sql
 aplicar migrations/006_integridad_y_auditoria.sql
 aplicar migrations/007_vistas_reporteria.sql
 aplicar migrations/008_autenticacion.sql
+
+# Con la demostracion, camara-01 y zona-norte quedan activas y apuntan a la
+# camara simulada del perfil dev: el seed las deja desactivadas y con una
+# direccion de ejemplo, y el agente no vigila una zona desactivada.
+if [ "${CASCOVISION_SEED:-0}" = "1" ]; then
+    echo "[migrar] demostracion: activa camara-01 y zona-norte (rtsp-sim)"
+    psql -X -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+UPDATE cameras SET rtsp_url = 'rtsp://rtsp-sim:8554/camara-01', active = TRUE WHERE id = 'camara-01';
+UPDATE zones SET polygon = '[[0,0],[1,0],[1,1],[0,1]]', active = TRUE WHERE id = 'zona-norte';
+SQL
+fi
 
 # Primer administrador del dashboard, desde el .env (CASCOVISION_ADMIN_*). Los
 # valores pasan como variables de psql, no se pegan en el SQL.
