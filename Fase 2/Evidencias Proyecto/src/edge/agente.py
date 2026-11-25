@@ -323,6 +323,18 @@ def elegir_fuente(fuente_fija: str | None, cfg: dict, remota: dict | None) -> st
     return str(url or cfg["fuente"])
 
 
+def siguiente_marca(ultimo: float, ahora: float, periodo: float) -> float:
+    """Marca del cuadro que se acaba de analizar en una cámara en vivo.
+
+    Avanza un período fijo, no hasta «ahora»: si no, la espera hasta el
+    próximo cuadro de la cámara se suma en cada período y se analizan menos
+    cuadros de los pedidos (0,93 por segundo con una cámara de 10 cuadros/s;
+    RNF-01 pide 1). Si el agente quedó atrás más de un período (reconexión o
+    inferencia lenta), se reinicia en «ahora» para no analizar en ráfaga.
+    """
+    return ultimo + periodo if ahora - ultimo < 2 * periodo else ahora
+
+
 def vigilancia_activa(cfg: dict, remota: dict | None) -> bool:
     """False si en el dashboard se desactivó la cámara o la zona que vigila
     este agente. Sin respuesta de la API se sigue vigilando con lo último que
@@ -488,7 +500,7 @@ def main() -> None:
             # En vivo se lee todo (el búfer no se atrasa) y se analiza 1 cuadro por período.
             if (es_archivo and n % paso) or (not es_archivo and ahora - ultimo < periodo):
                 continue
-            ultimo = ahora
+            ultimo = siguiente_marca(ultimo, ahora, periodo)
             ok, frame = cap.retrieve()
             if not ok:
                 continue
