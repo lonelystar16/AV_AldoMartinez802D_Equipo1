@@ -1,0 +1,13 @@
+PR-02 · 25-11-2026 · 4 cámaras y 4 agentes, 600 s cada medición
+
+Antes de la corrección DEF-05:
+  edge-2: 556 cuadros en 600 s = 0.927 cuadros/s
+  edge-3: 559 cuadros en 600 s = 0.932 cuadros/s
+  edge-4: 560 cuadros en 600 s = 0.933 cuadros/s
+  edge: 560 cuadros en 600 s = 0.933 cuadros/s
+
+Después de la corrección DEF-05 (commit 7e677c9):
+  edge-2: 595 cuadros en 600 s = 0.992 cuadros/s
+  edge-3: 595 cuadros en 600 s = 0.992 cuadros/s
+  edge-4: 593 cuadros en 600 s = 0.988 cuadros/s
+  edge: 596 cuadros en 600 s = 0.993 cuadros/s

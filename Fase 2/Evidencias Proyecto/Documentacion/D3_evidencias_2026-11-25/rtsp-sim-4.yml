@@ -1,0 +1,26 @@
+# Solo para PR-02: cuatro camaras simuladas con el mismo video.
+paths:
+  camara-01:
+    runOnInit: >-
+      ffmpeg -re -stream_loop -1 -i /video/video_prueba.mp4
+      -an -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10
+      -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  camara-02:
+    runOnInit: >-
+      ffmpeg -re -stream_loop -1 -i /video/video_prueba.mp4
+      -an -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10
+      -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  camara-03:
+    runOnInit: >-
+      ffmpeg -re -stream_loop -1 -i /video/video_prueba.mp4
+      -an -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10
+      -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  camara-04:
+    runOnInit: >-
+      ffmpeg -re -stream_loop -1 -i /video/video_prueba.mp4
+      -an -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10
+      -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes

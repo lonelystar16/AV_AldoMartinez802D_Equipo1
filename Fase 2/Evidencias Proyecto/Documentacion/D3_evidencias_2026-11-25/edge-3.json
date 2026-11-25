@@ -1,0 +1,30 @@
+{
+  "camera_id": "camara-03",
+  "zone_id": "zona-03",
+  "zone_name": "Zona 3",
+  "fuente": "rtsp://rtsp-sim:8554/camara-03",
+  "poligono": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      1.0,
+      0.0
+    ],
+    [
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      1.0
+    ]
+  ],
+  "baliza": {
+    "url": "",
+    "duracion_s": 10
+  },
+  "api": "http://api:8000",
+  "carpeta_datos": "/data/edge"
+}

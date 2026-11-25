@@ -187,3 +187,44 @@ def test_vaciar_la_cola_no_pierde_lo_que_falta_si_la_api_vuelve_a_caer(tmp_path,
     lineas = (tmp_path / "cola.jsonl").read_text(encoding="utf-8").splitlines()
     assert [json.loads(linea)["n"] for linea in lineas] == [2, 3]
 
+
+
+def test_siguiente_marca_mantiene_un_cuadro_por_segundo_con_camara_de_10_fps() -> None:
+    # Cámara de 10 cuadros/s con hasta 50 ms de desfase por cuadro, como en la red.
+    # Con «ultimo = ahora» se analizaban 568 cuadros en 600 s (0,95/s); con la
+    # marca fija, uno por segundo (RNF-01).
+    import random
+
+    azar = random.Random(7)
+    ultimo, analizados = 0.0, 0
+    for i in range(1, 6001):  # 600 s de cuadros
+        ahora = 1000.0 + i * 0.1 + azar.uniform(0, 0.05)
+        if ahora - ultimo < 1.0:
+            continue
+        ultimo = agente.siguiente_marca(ultimo, ahora, 1.0)
+        analizados += 1
+    assert analizados >= 599
+
+
+def test_siguiente_marca_se_reinicia_si_el_agente_quedo_atras() -> None:
+    assert agente.siguiente_marca(100.0, 100.05, 1.0) == 101.0
+    # Tras una reconexión de 5 s no se analiza en ráfaga: la marca salta a «ahora».
+    assert agente.siguiente_marca(100.0, 105.0, 1.0) == 105.0
+
+
+def test_el_agente_no_manda_telemetria_fuera_de_la_faena() -> None:
+    # RNF-08 / DEF-06: con el agente importado primero, Ultralytics queda sin
+    # conexión y la telemetría de ONNX Runtime, apagada. Proceso aparte, porque otras pruebas importan Ultralytics antes.
+    import os
+    import subprocess
+
+    codigo = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import agente; "
+        "import os; from ultralytics.utils import ONLINE; print(ONLINE, os.environ.get('ORT_DISABLE_TELEMETRY'))"
+    )
+    entorno = {k: v for k, v in os.environ.items() if k not in ("YOLO_OFFLINE", "ORT_DISABLE_TELEMETRY")}
+    salida = subprocess.run(
+        [sys.executable, "-c", codigo, str(Path(__file__).parents[1] / "src" / "edge")],
+        capture_output=True, text=True, env=entorno, timeout=120, check=True,
+    )
+    assert salida.stdout.strip().splitlines()[-1] == "False 1"
