@@ -2,8 +2,7 @@
 
 ## Estado
 
-API en construcción, basada en el SRS v0.3 (borrador, 09-10-2026). Están
-implementadas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
+La API implementa los requisitos del SRS v1.1 (D1). Sus rutas, cubiertas por `tests/test_health.py`, `tests/test_incidents.py`,
 `tests/test_recursos_reporte.py` y `tests/test_edge_config_api.py`:
 
 | Rutas | Finalidad |
