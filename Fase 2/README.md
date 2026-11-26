@@ -10,7 +10,7 @@ En esta fase se especifica, diseña, construye y prueba CascoVision con una meto
 | --- | --- | --- |
 | 2.4 | Guía del avance, completada en el formulario oficial | [2.4_GuiaEstudiante_Fase 2_DesarrolloProyecto APT (Español).docx](<Evidencias Grupales/2.4_GuiaEstudiante_Fase 2_DesarrolloProyecto APT (Español).docx>) |
 | 2.4 | Anexo de la guía 2.4: informe de avance desarrollado, con abstract bilingüe, monitoreo del plan y ajustes | [2.4_GuiaEstudiante_Fase2_DesarrolloProyectoAPT_CascoVision.docx](<Evidencias Grupales/2.4_GuiaEstudiante_Fase2_DesarrolloProyectoAPT_CascoVision.docx>) |
-| 2.6 | Informe final del proyecto APT. La sección 7 responde las preguntas de innovación (qué problema resuelve, qué la hace diferente y qué valor agrega). Faltan las reflexiones individuales de la sección 6 de Joaquín, Benjamín y Fernando | [.docx](<Evidencias Grupales/2.6_GuiaEstudiante_Fase 2_Informe Final Proyecto APT (Español).docx>) · [.pdf](<Evidencias Grupales/2.6_GuiaEstudiante_Fase 2_Informe Final Proyecto APT (Español).pdf>) |
+| 2.6 | Informe final del proyecto APT. La sección 7 responde las preguntas de innovación (qué problema resuelve, qué la hace diferente y qué valor agrega), y la sección 6 tiene la reflexión de los cuatro integrantes | [.docx](<Evidencias Grupales/2.6_GuiaEstudiante_Fase 2_Informe Final Proyecto APT (Español).docx>) · [.pdf](<Evidencias Grupales/2.6_GuiaEstudiante_Fase 2_Informe Final Proyecto APT (Español).pdf>) |
 | — | Planilla de evaluación del avance | [PLANILLA DE EVALUACION AVANCE FASE 2.xlsx](<Evidencias Grupales/PLANILLA DE EVALUACION AVANCE FASE 2.xlsx>) |
 | — | Planilla de evaluación final de la Fase 2 | [PLANILLA DE EVALUACION FINAL FASE 2.xlsx](<Evidencias Grupales/PLANILLA DE EVALUACION FINAL FASE 2.xlsx>) |
 
