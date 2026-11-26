@@ -1,8 +1,8 @@
 # CascoVision — Informe de resultados de pruebas
 
-- **Versión:** borrador 0.3 (v0.2 agregó rendimiento, seguridad y la suite completa; v0.3 completa PR-02, PS-07 y PS-08 con la muestra del plan y agrega DEF-05 y DEF-06). Pendiente de revisión de Benjamín Cáceres
-- **Fecha de consolidación:** 11-11-2026 (v0.1) · 25-11-2026 (v0.2 y v0.3)
-- **Rama de referencia:** `qa` (v0.1) · `dev-iahn` en `ca0e21d`, que contiene `qa` más las correcciones DEF-03 y DEF-04 (v0.2) · `dev-iahn` en `563df17`, con las correcciones DEF-05 y DEF-06 (v0.3)
+- **Versión:** 1.0, versión final para la entrega (v0.1 consolidó 4.21 y 4.22; v0.2 agregó rendimiento, seguridad y la suite completa; v0.3 completó PR-02, PS-07 y PS-08 con la muestra del plan y agregó DEF-05 y DEF-06; v1.0 cierra el estado de cada tarea)
+- **Fecha de consolidación:** 11-11-2026 (v0.1) · 25-11-2026 (v0.2 y v0.3) · 26-11-2026 (v1.0)
+- **Rama de referencia:** `qa` (v0.1) · `dev-iahn` en `ca0e21d`, que contiene `qa` más las correcciones DEF-03 y DEF-04 (v0.2) · `dev-iahn` en `563df17`, con las correcciones DEF-05 y DEF-06 (v0.3) · `main` en `aac094e`, con todo lo anterior (v1.0)
 - **Commit de referencia revisado:** `3899640` (`3899640278b6d1199609a13f60bb91f19d6c4a5d`) en v0.1
 - **Proyecto:** PTY4614 — Capstone, Ingeniería en Informática, Duoc UC
 - **Equipo:** Benjamín Cáceres, Iahn Vera, Joaquín Armijo y Fernando Muñoz
@@ -15,7 +15,7 @@ El informe complementa el Plan de Pruebas D3 publicado en el repositorio. No ree
 
 ## 2. Resumen ejecutivo
 
-| Tarea | Resultado consolidado | Estado propuesto |
+| Tarea | Resultado consolidado | Estado |
 |---|---|---|
 | 4.21 — API y base de datos | 48 pruebas PostgreSQL aprobadas en ejecución local anterior; 11 pruebas de configuración aprobadas; 103 pruebas de API aprobadas y 5 omitidas localmente por requerir PostgreSQL. La CI histórica ejecutó la suite con PostgreSQL configurado: 323 aprobadas y 1 omitida. | **Validada** |
 | 4.22 — Agente Edge y receptor simulado | 21 pruebas automatizadas aprobadas. La prueba automatizada RTSP se omitió en el equipo local por ausencia de FFmpeg; el equipo informa que la lectura y reconexión RTSP se validaron manualmente en otro dispositivo y que conserva sus evidencias. | **Aprobada mediante validación combinada** |
@@ -57,7 +57,7 @@ La CI se registra como respaldo separado; sus conteos no se agregan a los result
 
 Los resultados disponibles respaldan la validación funcional de API y persistencia: hay ejecución local satisfactoria de la batería PostgreSQL y configuración, pruebas de rutas aprobadas y una ejecución CI con PostgreSQL habilitado. No se registraron fallos en las ejecuciones informadas para este alcance.
 
-**Estado propuesto: VALIDADA.**
+**Estado: VALIDADA.**
 
 ## 4. Tarea 4.22 — Agente Edge y receptor simulado
 
@@ -84,13 +84,13 @@ Este resultado se registra como una limitación del entorno local; no se present
 
 Por separado, el equipo informa que la lectura de cámara RTSP y la reconexión fueron comprobadas manualmente en otro dispositivo y que conserva las evidencias de esa validación. Además, el README del agente Edge contiene un registro de prueba de punta a punta fechado el 23-10-2026 con cámara simulada, agente, baliza simulada y API: se documenta la recepción de alertas, el corte de cámara y la reconexión.
 
-La evidencia visual o de consola conservada por el compañero no se adjunta en esta versión del informe; se mantiene resguardada para incorporarla en la consolidación final de evidencias, sin volver a clasificar la validación como pendiente.
+La evidencia visual o de consola de esa validación no forma parte del repositorio; la conserva el equipo como evidencia fuente.
 
 ### 4.3 Conclusión de 4.22
 
 Las pruebas automatizadas del agente y receptor simulado aprobaron en su totalidad (21/21). La validación RTSP se considera satisfecha mediante la comprobación manual realizada por el equipo en otro dispositivo, diferenciándola explícitamente del test automatizado omitido en el equipo local.
 
-**Estado propuesto: APROBADA mediante validación combinada (automatizada + manual).**
+**Estado: APROBADA mediante validación combinada (automatizada + manual).**
 
 ## 5. Tarea 5.4 — Rendimiento
 
@@ -145,11 +145,11 @@ Los casos PS-01 a PS-05 y PS-09 se ejecutaron contra el stack en vivo del §5, a
 4. Salida de consola de los cinco módulos de API: 103 passed, 5 skipped.
 5. Resultado anterior de `test_db.py`: 48 passed.
 6. Resultado histórico de CI del PR #30: 323 passed, 1 skipped; workflow con PostgreSQL 16.15 y `CASCOVISION_TEST_POSTGRES=1`.
-7. Código y pruebas disponibles en la rama `qa` del repositorio CascoVision.
+7. Código y pruebas en las ramas `qa` y `main` del repositorio oficial del equipo.
 8. Salida de consola de la suite completa del 25-11-2026: 408 passed con PostgreSQL (347 passed y 61 skipped sin PostgreSQL); 411 passed tras DEF-05 y DEF-06.
 9. Mediciones del 25-11-2026 (§5 y §6), en la carpeta `D3_evidencias_2026-11-25/` junto a este informe: los scripts (`pr03_inferencia.py`, `e2e_mediciones.py`, `seguridad_vivo.py`, `ps07_rostros.py`, `pr02_tasa.py`, `compose.pr01.yaml`, `compose.medicion4.yaml` y `ps08_arranques.sh`), sus resultados (`e2e.json`, `ps08.json`, `ps08_1h.json`, `ps08_arranques_control.txt`, `ps08_arranques_corregido.txt`, `pr02_tasas.txt`, `pr02_docker_stats.txt`, `ps07_55_evidencias.txt` y `salidas_consola.txt`) y una evidencia difuminada de muestra.
 
-Los registros originales y las capturas se conservan como evidencia fuente. Este borrador no afirma que las capturas ya estén incorporadas al repositorio.
+Los registros originales y las capturas de la validación manual RTSP se conservan como evidencia fuente y no están incorporados al repositorio.
 
 ## 9. Criterios y límites de interpretación
 
@@ -162,4 +162,4 @@ Los registros originales y las capturas se conservan como evidencia fuente. Este
 
 ## 10. Participación y trazabilidad
 
-Este informe se prepara para dejar trazabilidad de la ejecución y consolidación de QA en el repositorio. Las pruebas locales de esta sesión fueron ejecutadas por Benjamín Cáceres. La validación manual RTSP fue realizada por Joaquin Armijo en un segundo dispositivo; el nombre del responsable debe conservarse tal como aparezca en la evidencia original. Las mediciones de rendimiento y seguridad de la versión 0.2 (25-11-2026) las ejecutó Iahn Vera en su equipo; Benjamín Cáceres, responsable de las tareas 5.4, 5.5 y 5.9, revisa esta versión antes de subirla a `qa`.
+Este informe se prepara para dejar trazabilidad de la ejecución y consolidación de QA en el repositorio. Las pruebas locales de esta sesión fueron ejecutadas por Benjamín Cáceres. La validación manual RTSP fue realizada por Joaquín Armijo en un segundo dispositivo. Las mediciones de rendimiento y seguridad de las versiones 0.2 y 0.3 (25-11-2026) las ejecutó Iahn Vera en su equipo. Benjamín Cáceres es el responsable de las tareas 5.4, 5.5 y 5.9. La versión 0.3 entró a `qa` con el PR #48 y a `main` con el PR #49, aprobado en GitHub; la versión 1.0 es la versión final del informe para la entrega.
